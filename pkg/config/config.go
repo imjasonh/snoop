@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -22,10 +23,12 @@ type Config struct {
 	// Metadata
 	ImageRef    string
 	ContainerID string
+	PodName     string
+	Namespace   string
 
 	// Observability
 	MetricsAddr string
-	LogLevel    string
+	LogLevel    slog.Level
 
 	// Resource limits
 	MaxUniqueFiles int
@@ -59,7 +62,7 @@ func (c *Config) Validate() error {
 		"warn":  true,
 		"error": true,
 	}
-	if !validLevels[strings.ToLower(c.LogLevel)] {
+	if !validLevels[strings.ToLower(c.LogLevel.String())] {
 		errs = append(errs, fmt.Sprintf("invalid log level %q (must be debug, info, warn, or error)", c.LogLevel))
 	}
 

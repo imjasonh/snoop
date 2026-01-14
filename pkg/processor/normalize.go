@@ -31,9 +31,9 @@ func NormalizePath(path string, pid uint32, cwd string) string {
 		workDir = getProcessCwd(pid)
 	}
 	if workDir == "" {
-		// Fallback: return cleaned relative path prefixed with /
+		// Fallback: prefix with / and clean the result
 		// This is a best-effort when we can't determine the cwd
-		return "/" + cleanPath(path)
+		return cleanPath("/" + path)
 	}
 
 	// Join with working directory and clean
@@ -54,6 +54,18 @@ func cleanPath(path string) string {
 	// Ensure absolute paths start with /
 	if !strings.HasPrefix(cleaned, "/") && strings.HasPrefix(path, "/") {
 		cleaned = "/" + cleaned
+	}
+
+	// Handle .. past root: /../foo should become /foo
+	// filepath.Clean preserves this, but we need to strip leading /..
+	// This loop strips all leading /../ sequences
+	for strings.HasPrefix(cleaned, "/../") {
+		cleaned = "/" + cleaned[4:] // Remove "/.." but keep the leading "/"
+	}
+
+	// Special case: if path is exactly "/..", it should become "/"
+	if cleaned == "/.." {
+		cleaned = "/"
 	}
 
 	return cleaned

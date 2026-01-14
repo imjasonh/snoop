@@ -1,0 +1,218 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: snoop-test
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: alpine-test
+  namespace: snoop-test
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alpine-test
+  namespace: snoop-test
+  labels:
+    test: alpine-basic
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alpine-test
+  template:
+    metadata:
+      labels:
+        app: alpine-test
+        test: alpine-basic
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      serviceAccountName: alpine-test
+
+      volumes:
+        - name: snoop-data
+          emptyDir: {}
+        - name: cgroup
+          hostPath:
+            path: /sys/fs/cgroup
+            type: Directory
+        - name: debugfs
+          hostPath:
+            path: /sys/kernel/debug
+            type: Directory
+
+      containers:
+        - name: app
+          image: alpine:latest
+          command:
+            - sh
+            - -c
+            - |
+              echo "Alpine test app starting..."
+              echo "This app will access a predictable set of files."
+
+              while true; do
+                # Read config files
+                cat /etc/passwd > /dev/null
+                cat /etc/hosts > /dev/null
+                cat /etc/hostname > /dev/null
+                cat /etc/resolv.conf > /dev/null
+
+                # List directories
+                ls /usr/bin > /dev/null
+                ls /lib > /dev/null
+
+                # Execute binaries
+                /bin/sh -c 'echo test' > /dev/null
+
+                echo "File access cycle complete"
+                sleep 5
+              done
+          volumeMounts:
+            - name: snoop-data
+              mountPath: /data
+              readOnly: true
+
+        - name: snoop
+          # Image will be replaced by test runner with actual built image
+          image: snoop:test-latest
+          imagePullPolicy: Never
+
+          securityContext:
+            privileged: false
+            capabilities:
+              add:
+                - SYS_ADMIN
+                - BPF
+                - PERFMON
+            readOnlyRootFilesystem: true
+
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+
+          command:
+            - /bin/sh
+            - -c
+
+          args:
+            - |
+              # Find the actual cgroup path using the pod UID
+              # Pod UID format: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+              # Cgroup format: podaaaaaaaa_bbbb_cccc_dddd_eeeeeeeeeeee
+              POD_UID_CGROUP=$(echo "$POD_UID" | tr '-' '_')
+              echo "Looking for cgroup with pod UID: pod${POD_UID_CGROUP}"
+
+              # Search for the pod cgroup directory
+              POD_CGROUP=$(find /sys/fs/cgroup -name "*pod${POD_UID_CGROUP}*" -type d 2>/dev/null | head -1)
+
+              if [ -z "$POD_CGROUP" ]; then
+                echo "ERROR: Could not find cgroup for pod UID $POD_UID"
+                exit 1
+              fi
+
+              echo "Found pod cgroup: ${POD_CGROUP}"
+
+              # Wait a moment for containers to start
+              sleep 3
+
+              # Find the app container's cgroup by looking for the one with the most processes
+              # that is NOT running snoop itself
+              # The pause container has 1 process, the app has multiple, snoop has 1-2
+              APP_CGROUP=""
+              MAX_PROCS=0
+              for cgroup in $(find "$POD_CGROUP" -maxdepth 1 -name "cri-containerd-*.scope" -type d 2>/dev/null); do
+                PROC_COUNT=$(cat "$cgroup/cgroup.procs" 2>/dev/null | wc -l)
+
+                # Check if this cgroup contains the snoop process (us!)
+                # Get the first PID and check what it's running
+                FIRST_PID=$(cat "$cgroup/cgroup.procs" 2>/dev/null | head -1)
+                if [ -n "$FIRST_PID" ]; then
+                  CMDLINE=$(cat "/proc/$FIRST_PID/cmdline" 2>/dev/null | tr '\0' ' ')
+                  # Skip if this is our own cgroup (running /bin/sh with snoop in the command)
+                  if echo "$CMDLINE" | grep -q "snoop"; then
+                    echo "Cgroup $cgroup has $PROC_COUNT processes (skipping - contains snoop)"
+                    continue
+                  fi
+                fi
+
+                echo "Cgroup $cgroup has $PROC_COUNT processes"
+                if [ "$PROC_COUNT" -gt "$MAX_PROCS" ]; then
+                  MAX_PROCS=$PROC_COUNT
+                  APP_CGROUP=$cgroup
+                fi
+              done
+
+              if [ -z "$APP_CGROUP" ]; then
+                echo "ERROR: Could not find app container cgroup"
+                exit 1
+              fi
+
+              # Remove /sys/fs/cgroup prefix for the snoop argument
+              CGROUP_PATH=${APP_CGROUP#/sys/fs/cgroup}
+              echo "Found app container cgroup with $MAX_PROCS processes: ${CGROUP_PATH}"
+
+              # Start snoop with cgroup path (GetCgroupIDByPath prepends /sys/fs/cgroup)
+              exec /usr/local/bin/snoop \
+                -cgroup="${CGROUP_PATH}" \
+                -report=/data/snoop-report.json \
+                -interval=30s \
+                -exclude=/proc/,/sys/,/dev/ \
+                -metrics-addr=:9090 \
+                -log-level=info \
+                -max-unique-files=100000 \
+                -container-id="$POD_NAME"
+
+          volumeMounts:
+            - name: snoop-data
+              mountPath: /data
+            - name: cgroup
+              mountPath: /sys/fs/cgroup
+              readOnly: true
+            - name: debugfs
+              mountPath: /sys/kernel/debug
+              readOnly: true
+
+          ports:
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9090
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3

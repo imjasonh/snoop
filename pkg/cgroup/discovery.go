@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 // Discovery finds cgroup IDs to trace
@@ -82,21 +83,36 @@ func GetSelfCgroupID() (uint64, error) {
 
 // GetCgroupIDByPath returns the cgroup ID for a given cgroup path
 func GetCgroupIDByPath(cgroupPath string) (uint64, error) {
+	// Try reading from cgroup.id file first (newer kernels)
 	idPath := "/sys/fs/cgroup" + cgroupPath
 	if !strings.HasSuffix(idPath, "/") {
 		idPath += "/"
 	}
-	idPath += "cgroup.id"
+	idFilePath := idPath + "cgroup.id"
 
-	idData, err := os.ReadFile(idPath)
-	if err != nil {
-		return 0, fmt.Errorf("reading cgroup.id from %s: %w", idPath, err)
+	idData, err := os.ReadFile(idFilePath)
+	if err == nil {
+		id, err := strconv.ParseUint(strings.TrimSpace(string(idData)), 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("parsing cgroup ID: %w", err)
+		}
+		return id, nil
 	}
 
-	id, err := strconv.ParseUint(strings.TrimSpace(string(idData)), 10, 64)
-	if err != nil {
-		return 0, fmt.Errorf("parsing cgroup ID: %w", err)
+	// Fallback: use name_to_handle_at syscall to get inode number
+	// The cgroup ID is the inode number of the cgroup directory
+	return getCgroupIDFromInode(strings.TrimSuffix(idPath, "/"))
+}
+
+// getCgroupIDFromInode gets the cgroup ID from the directory inode
+// The cgroup ID is the inode number of the cgroup directory
+func getCgroupIDFromInode(cgroupPath string) (uint64, error) {
+	// Use stat to get the inode number
+	var stat syscall.Stat_t
+	if err := syscall.Stat(cgroupPath, &stat); err != nil {
+		return 0, fmt.Errorf("stat failed for %s: %w", cgroupPath, err)
 	}
 
-	return id, nil
+	// The cgroup ID is the inode number
+	return stat.Ino, nil
 }

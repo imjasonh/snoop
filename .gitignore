@@ -1,6 +1,4 @@
 # Binaries
-^snoop
-*.o
 *.a
 *.so
 
@@ -9,11 +7,6 @@
 *.prof
 go.work
 go.work.sum
-
-# eBPF generated files
-pkg/ebpf/bpf/*_bpf*.go
-pkg/ebpf/bpf/*_bpf*.o
-pkg/ebpf/bpf/vmlinux.h
 
 # IDE
 .vscode/

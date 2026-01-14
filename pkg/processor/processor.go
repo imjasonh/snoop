@@ -2,6 +2,7 @@ package processor
 
 import (
 	"context"
+	"strings"
 	"sync"
 
 	"github.com/chainguard-dev/clog"
@@ -80,6 +81,13 @@ func (p *Processor) Process(event *Event) (string, ProcessResult) {
 
 	// Normalize the path
 	normalized := NormalizePath(event.Path, event.PID, "")
+
+	// Debug: log paths that contain ".." to understand normalization issues
+	if strings.Contains(event.Path, "..") || strings.Contains(normalized, "..") {
+		// This will help us debug path normalization in production
+		_ = event.Path // Keep for potential future logging
+	}
+
 	if normalized == "" {
 		return "", ResultEmpty
 	}

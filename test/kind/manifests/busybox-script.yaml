@@ -1,0 +1,241 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: snoop-test
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: busybox-test
+  namespace: snoop-test
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: busybox-script
+  namespace: snoop-test
+data:
+  test.sh: |
+    #!/bin/sh
+    echo "Starting controlled file access test..."
+
+    # Create test file
+    echo "test content" > /tmp/test.txt
+
+    # Test various access patterns
+    while true; do
+      echo "=== Test cycle starting ==="
+
+      # Absolute paths
+      echo "Testing absolute paths..."
+      cat /etc/passwd > /dev/null
+      cat /etc/hosts > /dev/null
+      cat /etc/hostname > /dev/null
+
+      # Relative paths (should be normalized to absolute)
+      echo "Testing relative paths..."
+      cd /etc
+      cat ./passwd > /dev/null
+      cat ../etc/hosts > /dev/null
+      cd /
+
+      # Executable access
+      echo "Testing executable access..."
+      /bin/ls /usr > /dev/null
+      /bin/cat /etc/hostname > /dev/null
+
+      # Multiple access to same file (should be deduplicated)
+      echo "Testing deduplication..."
+      cat /etc/passwd > /dev/null
+      cat /etc/passwd > /dev/null
+      cat /etc/passwd > /dev/null
+
+      # Temp file (should NOT be excluded)
+      echo "Testing temp file access..."
+      cat /tmp/test.txt > /dev/null
+
+      echo "=== Test cycle complete ==="
+      sleep 5
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: busybox-test
+  namespace: snoop-test
+  labels:
+    test: busybox-controlled
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: busybox-test
+  template:
+    metadata:
+      labels:
+        app: busybox-test
+        test: busybox-controlled
+    spec:
+      serviceAccountName: busybox-test
+
+      volumes:
+        - name: snoop-data
+          emptyDir: {}
+        - name: cgroup
+          hostPath:
+            path: /sys/fs/cgroup
+            type: Directory
+        - name: debugfs
+          hostPath:
+            path: /sys/kernel/debug
+            type: Directory
+        - name: script
+          configMap:
+            name: busybox-script
+            defaultMode: 0755
+
+      containers:
+        - name: app
+          image: busybox:latest
+          command: ["/scripts/test.sh"]
+          volumeMounts:
+            - name: snoop-data
+              mountPath: /data
+              readOnly: true
+            - name: script
+              mountPath: /scripts
+
+        - name: snoop
+          image: snoop:test-latest
+          imagePullPolicy: Never
+
+          securityContext:
+            privileged: false
+            capabilities:
+              add:
+                - SYS_ADMIN
+                - BPF
+                - PERFMON
+            readOnlyRootFilesystem: true
+
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+
+          command:
+            - /bin/sh
+            - -c
+
+          args:
+            - |
+              # Find the actual cgroup path using the pod UID
+              # Pod UID format: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+              # Cgroup format: podaaaaaaaa_bbbb_cccc_dddd_eeeeeeeeeeee
+              POD_UID_CGROUP=$(echo "$POD_UID" | tr '-' '_')
+              echo "Looking for cgroup with pod UID: pod${POD_UID_CGROUP}"
+
+              # Search for the pod cgroup directory
+              POD_CGROUP=$(find /sys/fs/cgroup -name "*pod${POD_UID_CGROUP}*" -type d 2>/dev/null | head -1)
+
+              if [ -z "$POD_CGROUP" ]; then
+                echo "ERROR: Could not find cgroup for pod UID $POD_UID"
+                exit 1
+              fi
+
+              echo "Found pod cgroup: ${POD_CGROUP}"
+
+              # Wait a moment for containers to start
+              sleep 3
+
+              # Find the app container's cgroup by looking for the one with the most processes
+              # that is NOT running snoop itself
+              APP_CGROUP=""
+              MAX_PROCS=0
+              for cgroup in $(find "$POD_CGROUP" -maxdepth 1 -name "cri-containerd-*.scope" -type d 2>/dev/null); do
+                PROC_COUNT=$(cat "$cgroup/cgroup.procs" 2>/dev/null | wc -l)
+
+                # Check if this cgroup contains the snoop process (us!)
+                FIRST_PID=$(cat "$cgroup/cgroup.procs" 2>/dev/null | head -1)
+                if [ -n "$FIRST_PID" ]; then
+                  CMDLINE=$(cat "/proc/$FIRST_PID/cmdline" 2>/dev/null | tr '\0' ' ')
+                  # Skip if this is our own cgroup (running /bin/sh with snoop in the command)
+                  if echo "$CMDLINE" | grep -q "snoop"; then
+                    echo "Cgroup $cgroup has $PROC_COUNT processes (skipping - contains snoop)"
+                    continue
+                  fi
+                fi
+
+                echo "Cgroup $cgroup has $PROC_COUNT processes"
+                if [ "$PROC_COUNT" -gt "$MAX_PROCS" ]; then
+                  MAX_PROCS=$PROC_COUNT
+                  APP_CGROUP=$cgroup
+                fi
+              done
+
+              if [ -z "$APP_CGROUP" ]; then
+                echo "ERROR: Could not find app container cgroup"
+                exit 1
+              fi
+
+              echo "Found app container cgroup with $MAX_PROCS processes: ${APP_CGROUP}"
+
+              # Remove /sys/fs/cgroup prefix for the snoop argument
+              CGROUP_PATH=${APP_CGROUP#/sys/fs/cgroup}
+              echo "Found app container cgroup: ${CGROUP_PATH}"
+
+              # Start snoop with cgroup path (GetCgroupIDByPath prepends /sys/fs/cgroup)
+              exec /usr/local/bin/snoop \
+                -cgroup="${CGROUP_PATH}" \
+                -report=/data/snoop-report.json \
+                -interval=30s \
+                -exclude=/proc/,/sys/,/dev/ \
+                -metrics-addr=:9090 \
+                -log-level=debug \
+                -max-unique-files=100000 \
+                -container-id="$POD_NAME"
+
+          volumeMounts:
+            - name: snoop-data
+              mountPath: /data
+            - name: cgroup
+              mountPath: /sys/fs/cgroup
+              readOnly: true
+            - name: debugfs
+              mountPath: /sys/kernel/debug
+              readOnly: true
+
+          ports:
+            - name: metrics
+              containerPort: 9090
+
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 30
+
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9090
+            initialDelaySeconds: 5
+            periodSeconds: 10

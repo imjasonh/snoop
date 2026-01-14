@@ -47,8 +47,7 @@ struct {
 
 // Helper to check if current task's cgroup should be traced
 static __always_inline bool should_trace() {
-    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
-    u64 cgroup_id = BPF_CORE_READ(task, cgroups, dfl_cgrp, kn, id);
+    u64 cgroup_id = bpf_get_current_cgroup_id();
     
     // If no cgroups are configured, don't trace anything
     u8 *val = bpf_map_lookup_elem(&traced_cgroups, &cgroup_id);
@@ -82,8 +81,7 @@ int trace_openat(struct trace_event_raw_sys_enter *ctx) {
     }
     
     // Get cgroup ID
-    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
-    e->cgroup_id = BPF_CORE_READ(task, cgroups, dfl_cgrp, kn, id);
+    e->cgroup_id = bpf_get_current_cgroup_id();
     
     // Get PID
     e->pid = bpf_get_current_pid_tgid() >> 32;
@@ -115,8 +113,7 @@ int trace_execve(struct trace_event_raw_sys_enter *ctx) {
         return 0;
     }
     
-    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
-    e->cgroup_id = BPF_CORE_READ(task, cgroups, dfl_cgrp, kn, id);
+    e->cgroup_id = bpf_get_current_cgroup_id();
     e->pid = bpf_get_current_pid_tgid() >> 32;
     e->syscall_nr = ctx->id;
     
@@ -142,8 +139,7 @@ int trace_execveat(struct trace_event_raw_sys_enter *ctx) {
         return 0;
     }
     
-    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
-    e->cgroup_id = BPF_CORE_READ(task, cgroups, dfl_cgrp, kn, id);
+    e->cgroup_id = bpf_get_current_cgroup_id();
     e->pid = bpf_get_current_pid_tgid() >> 32;
     e->syscall_nr = ctx->id;
     
@@ -169,8 +165,7 @@ int trace_openat2(struct trace_event_raw_sys_enter *ctx) {
         return 0;
     }
     
-    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
-    e->cgroup_id = BPF_CORE_READ(task, cgroups, dfl_cgrp, kn, id);
+    e->cgroup_id = bpf_get_current_cgroup_id();
     e->pid = bpf_get_current_pid_tgid() >> 32;
     e->syscall_nr = ctx->id;
     
@@ -196,8 +191,7 @@ int trace_statx(struct trace_event_raw_sys_enter *ctx) {
         return 0;
     }
     
-    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
-    e->cgroup_id = BPF_CORE_READ(task, cgroups, dfl_cgrp, kn, id);
+    e->cgroup_id = bpf_get_current_cgroup_id();
     e->pid = bpf_get_current_pid_tgid() >> 32;
     e->syscall_nr = ctx->id;
     
@@ -223,8 +217,7 @@ int trace_newfstatat(struct trace_event_raw_sys_enter *ctx) {
         return 0;
     }
     
-    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
-    e->cgroup_id = BPF_CORE_READ(task, cgroups, dfl_cgrp, kn, id);
+    e->cgroup_id = bpf_get_current_cgroup_id();
     e->pid = bpf_get_current_pid_tgid() >> 32;
     e->syscall_nr = ctx->id;
     
@@ -250,8 +243,7 @@ int trace_faccessat(struct trace_event_raw_sys_enter *ctx) {
         return 0;
     }
     
-    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
-    e->cgroup_id = BPF_CORE_READ(task, cgroups, dfl_cgrp, kn, id);
+    e->cgroup_id = bpf_get_current_cgroup_id();
     e->pid = bpf_get_current_pid_tgid() >> 32;
     e->syscall_nr = ctx->id;
     
@@ -277,8 +269,7 @@ int trace_faccessat2(struct trace_event_raw_sys_enter *ctx) {
         return 0;
     }
     
-    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
-    e->cgroup_id = BPF_CORE_READ(task, cgroups, dfl_cgrp, kn, id);
+    e->cgroup_id = bpf_get_current_cgroup_id();
     e->pid = bpf_get_current_pid_tgid() >> 32;
     e->syscall_nr = ctx->id;
     
@@ -304,8 +295,7 @@ int trace_readlinkat(struct trace_event_raw_sys_enter *ctx) {
         return 0;
     }
     
-    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
-    e->cgroup_id = BPF_CORE_READ(task, cgroups, dfl_cgrp, kn, id);
+    e->cgroup_id = bpf_get_current_cgroup_id();
     e->pid = bpf_get_current_pid_tgid() >> 32;
     e->syscall_nr = ctx->id;
     

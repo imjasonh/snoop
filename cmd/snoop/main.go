@@ -1,11 +1,10 @@
-//go:build linux
-
 package main
 
 import (
 	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/chainguard-dev/clog"
+	"github.com/chainguard-dev/clog/slag"
 	"github.com/imjasonh/snoop/pkg/cgroup"
 	"github.com/imjasonh/snoop/pkg/config"
 	"github.com/imjasonh/snoop/pkg/ebpf"
@@ -30,8 +30,10 @@ func main() {
 		excludePaths   string
 		imageRef       string
 		containerID    string
+		podName        string
+		namespace      string
 		metricsAddr    string
-		logLevel       string
+		logLevel       slag.Level
 		maxUniqueFiles int
 	)
 
@@ -41,12 +43,21 @@ func main() {
 	flag.StringVar(&excludePaths, "exclude", "/proc/,/sys/,/dev/", "Comma-separated path prefixes to exclude")
 	flag.StringVar(&imageRef, "image", "", "Image reference for report metadata")
 	flag.StringVar(&containerID, "container-id", "", "Container ID for report metadata")
+	flag.StringVar(&podName, "pod-name", "", "Pod name for report metadata")
+	flag.StringVar(&namespace, "namespace", "", "Namespace for report metadata")
 	flag.StringVar(&metricsAddr, "metrics-addr", ":9090", "Address for Prometheus metrics endpoint (empty to disable)")
-	flag.StringVar(&logLevel, "log-level", "info", "Log level (debug, info, warn, error)")
+	flag.Var(&logLevel, "log-level", "Log level (debug, info, warn, error)")
 	flag.IntVar(&maxUniqueFiles, "max-unique-files", 0, "Maximum unique files to track (0 = unbounded)")
 	flag.Parse()
 
-	// Build configuration from flags
+	// Build configuration from flags (also check environment variables)
+	if podName == "" {
+		podName = os.Getenv("POD_NAME")
+	}
+	if namespace == "" {
+		namespace = os.Getenv("POD_NAMESPACE")
+	}
+
 	cfg := &config.Config{
 		CgroupPath:     cgroupPath,
 		ReportPath:     reportPath,
@@ -54,13 +65,17 @@ func main() {
 		ExcludePaths:   config.ParseExcludePaths(excludePaths),
 		ImageRef:       imageRef,
 		ContainerID:    containerID,
+		PodName:        podName,
+		Namespace:      namespace,
 		MetricsAddr:    metricsAddr,
-		LogLevel:       logLevel,
+		LogLevel:       slog.Level(logLevel),
 		MaxUniqueFiles: maxUniqueFiles,
 	}
 
 	// Initialize logging context
-	ctx := clog.WithLogger(context.Background(), clog.New(clog.ParseLevel(cfg.LogLevel)))
+	ctx := clog.WithLogger(context.Background(), clog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.Level(logLevel),
+	})))
 
 	// Validate configuration
 	if err := cfg.Validate(); err != nil {
@@ -179,6 +194,8 @@ func run(ctx context.Context, cfg *config.Config) error {
 		report := &reporter.Report{
 			ContainerID:   cfg.ContainerID,
 			ImageRef:      cfg.ImageRef,
+			PodName:       cfg.PodName,
+			Namespace:     cfg.Namespace,
 			StartedAt:     startedAt,
 			Files:         proc.Files(),
 			TotalEvents:   stats.EventsReceived,

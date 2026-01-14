@@ -19,7 +19,8 @@ Milestone 4 progress:
 - ✅ Example nginx deployment with snoop sidecar (`deploy/kubernetes/example-app.yaml`)
 - ✅ Comprehensive documentation (`deploy/kubernetes/README.md`)
 
-**Next Steps**: Continue with Milestone 4 - Helm chart, metadata enrichment, multi-container support
+**Next Steps**: URGENT, OUTSIDE OF MILESTONES: Test with a KinD cluster -- deploy alongside a sample app, verify reports generated correctly with metadata.
+
 
 See [Milestone 4](#milestone-4-kubernetes-integration) for details.
 

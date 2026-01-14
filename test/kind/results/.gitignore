@@ -1,0 +1,4 @@
+# Ignore all test results
+*
+!.gitkeep
+!.gitignore

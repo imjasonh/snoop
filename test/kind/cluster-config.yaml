@@ -1,0 +1,12 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: snoop-test
+
+# Use a recent node image with eBPF support
+# Kind node images include recent kernels with BTF enabled
+nodes:
+  - role: control-plane
+    image: kindest/node:v1.29.0
+
+# Note: /sys/fs/cgroup and /sys/kernel/debug are already available
+# inside the KinD node container by default, no extra mounts needed

@@ -1,0 +1,34 @@
+# Binaries
+snoop
+*.o
+*.a
+*.so
+
+# Go
+*.test
+*.prof
+go.work
+go.work.sum
+
+# eBPF generated files
+pkg/ebpf/bpf/*_bpf*.go
+pkg/ebpf/bpf/*_bpf*.o
+pkg/ebpf/bpf/vmlinux.h
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+*.coverprofile
+coverage.out
+
+# Docker volumes
+/data/

@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  # Test application container
+  app:
+    image: alpine:latest
+    command: >
+      sh -c "
+        echo 'Test app starting...';
+        while true; do
+          cat /etc/passwd > /dev/null;
+          ls /usr/bin > /dev/null;
+          sleep 5;
+        done
+      "
+    networks:
+      - snoop-net
+
+  # Snoop sidecar
+  snoop:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    privileged: true
+    pid: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+      - /sys/kernel/debug:/sys/kernel/debug:ro
+      - snoop-data:/data
+    environment:
+      - TARGET_CGROUP=${TARGET_CGROUP:-}
+    depends_on:
+      - app
+    networks:
+      - snoop-net
+
+volumes:
+  snoop-data:
+
+networks:
+  snoop-net:

@@ -1,0 +1,12 @@
+builds:
+  - id: snoop
+    main: ./cmd/snoop
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s
+      - -w
+
+defaultBaseImage: cgr.dev/chainguard/static:latest

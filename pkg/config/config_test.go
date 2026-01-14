@@ -1,6 +1,7 @@
 package config
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,7 +25,7 @@ func TestConfig_Validate(t *testing.T) {
 				ReportPath:     filepath.Join(tempDir, "report.json"),
 				ReportInterval: 30 * time.Second,
 				ExcludePaths:   []string{"/proc/", "/sys/"},
-				LogLevel:       "info",
+				LogLevel:       slog.LevelInfo,
 				MetricsAddr:    ":9090",
 				MaxUniqueFiles: 10000,
 			},
@@ -36,7 +37,7 @@ func TestConfig_Validate(t *testing.T) {
 				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportPath:     filepath.Join(tempDir, "report.json"),
 				ReportInterval: 1 * time.Second,
-				LogLevel:       "info",
+				LogLevel:       slog.LevelInfo,
 			},
 			wantErr: "",
 		},
@@ -46,7 +47,7 @@ func TestConfig_Validate(t *testing.T) {
 				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportPath:     filepath.Join(tempDir, "report.json"),
 				ReportInterval: 30 * time.Second,
-				LogLevel:       "info",
+				LogLevel:       slog.LevelInfo,
 				MaxUniqueFiles: 0, // unbounded
 			},
 			wantErr: "",
@@ -56,7 +57,7 @@ func TestConfig_Validate(t *testing.T) {
 			config: Config{
 				ReportPath:     filepath.Join(tempDir, "report.json"),
 				ReportInterval: 30 * time.Second,
-				LogLevel:       "info",
+				LogLevel:       slog.LevelInfo,
 			},
 			wantErr: "cgroup path is required",
 		},
@@ -65,7 +66,7 @@ func TestConfig_Validate(t *testing.T) {
 			config: Config{
 				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportInterval: 30 * time.Second,
-				LogLevel:       "info",
+				LogLevel:       slog.LevelInfo,
 			},
 			wantErr: "report path is required",
 		},
@@ -75,7 +76,7 @@ func TestConfig_Validate(t *testing.T) {
 				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportPath:     filepath.Join(tempDir, "report.json"),
 				ReportInterval: 0,
-				LogLevel:       "info",
+				LogLevel:       slog.LevelInfo,
 			},
 			wantErr: "report interval must be positive",
 		},
@@ -85,7 +86,7 @@ func TestConfig_Validate(t *testing.T) {
 				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportPath:     filepath.Join(tempDir, "report.json"),
 				ReportInterval: -5 * time.Second,
-				LogLevel:       "info",
+				LogLevel:       slog.LevelInfo,
 			},
 			wantErr: "report interval must be positive",
 		},
@@ -95,7 +96,7 @@ func TestConfig_Validate(t *testing.T) {
 				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportPath:     filepath.Join(tempDir, "report.json"),
 				ReportInterval: 500 * time.Millisecond,
-				LogLevel:       "info",
+				LogLevel:       slog.LevelInfo,
 			},
 			wantErr: "report interval must be at least 1 second",
 		},
@@ -105,7 +106,7 @@ func TestConfig_Validate(t *testing.T) {
 				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportPath:     filepath.Join(tempDir, "report.json"),
 				ReportInterval: 30 * time.Second,
-				LogLevel:       "invalid",
+				LogLevel:       slog.Level(999), // Invalid level
 			},
 			wantErr: "invalid log level",
 		},
@@ -115,7 +116,7 @@ func TestConfig_Validate(t *testing.T) {
 				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportPath:     filepath.Join(tempDir, "report.json"),
 				ReportInterval: 30 * time.Second,
-				LogLevel:       "debug",
+				LogLevel:       slog.LevelDebug,
 			},
 			wantErr: "",
 		},
@@ -125,7 +126,7 @@ func TestConfig_Validate(t *testing.T) {
 				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportPath:     filepath.Join(tempDir, "report.json"),
 				ReportInterval: 30 * time.Second,
-				LogLevel:       "warn",
+				LogLevel:       slog.LevelWarn,
 			},
 			wantErr: "",
 		},
@@ -135,7 +136,7 @@ func TestConfig_Validate(t *testing.T) {
 				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportPath:     filepath.Join(tempDir, "report.json"),
 				ReportInterval: 30 * time.Second,
-				LogLevel:       "error",
+				LogLevel:       slog.LevelError,
 			},
 			wantErr: "",
 		},
@@ -145,7 +146,7 @@ func TestConfig_Validate(t *testing.T) {
 				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportPath:     filepath.Join(tempDir, "report.json"),
 				ReportInterval: 30 * time.Second,
-				LogLevel:       "INFO",
+				LogLevel:       slog.LevelInfo,
 			},
 			wantErr: "",
 		},
@@ -155,7 +156,7 @@ func TestConfig_Validate(t *testing.T) {
 				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportPath:     filepath.Join(tempDir, "report.json"),
 				ReportInterval: 30 * time.Second,
-				LogLevel:       "info",
+				LogLevel:       slog.LevelInfo,
 				MaxUniqueFiles: -1,
 			},
 			wantErr: "max unique files cannot be negative",
@@ -166,7 +167,7 @@ func TestConfig_Validate(t *testing.T) {
 				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportPath:     "/nonexistent/directory/report.json",
 				ReportInterval: 30 * time.Second,
-				LogLevel:       "info",
+				LogLevel:       slog.LevelInfo,
 			},
 			wantErr: "report directory does not exist",
 		},
@@ -176,7 +177,7 @@ func TestConfig_Validate(t *testing.T) {
 				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportPath:     filepath.Join(tempDir, "report.json"),
 				ReportInterval: 30 * time.Second,
-				LogLevel:       "info",
+				LogLevel:       slog.LevelInfo,
 				MetricsAddr:    "9090",
 			},
 			wantErr: "invalid metrics address format",
@@ -187,7 +188,7 @@ func TestConfig_Validate(t *testing.T) {
 				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportPath:     filepath.Join(tempDir, "report.json"),
 				ReportInterval: 30 * time.Second,
-				LogLevel:       "info",
+				LogLevel:       slog.LevelInfo,
 				MetricsAddr:    ":9090",
 			},
 			wantErr: "",
@@ -198,7 +199,7 @@ func TestConfig_Validate(t *testing.T) {
 				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportPath:     filepath.Join(tempDir, "report.json"),
 				ReportInterval: 30 * time.Second,
-				LogLevel:       "info",
+				LogLevel:       slog.LevelInfo,
 				MetricsAddr:    "localhost:9090",
 			},
 			wantErr: "",
@@ -209,7 +210,7 @@ func TestConfig_Validate(t *testing.T) {
 				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportPath:     filepath.Join(tempDir, "report.json"),
 				ReportInterval: 30 * time.Second,
-				LogLevel:       "info",
+				LogLevel:       slog.LevelInfo,
 				MetricsAddr:    "",
 			},
 			wantErr: "",
@@ -220,7 +221,7 @@ func TestConfig_Validate(t *testing.T) {
 				CgroupPath:     "", // missing
 				ReportPath:     "", // missing
 				ReportInterval: 0,  // invalid
-				LogLevel:       "invalid",
+				LogLevel:       slog.Level(999), // Invalid level
 				MaxUniqueFiles: -1,
 			},
 			wantErr: "configuration validation failed",
@@ -255,7 +256,7 @@ func TestConfig_Validate_ReportPathDirectory(t *testing.T) {
 		CgroupPath:     "/sys/fs/cgroup/test",
 		ReportPath:     filepath.Join(tempFile, "report.json"), // parent is a file
 		ReportInterval: 30 * time.Second,
-		LogLevel:       "info",
+		LogLevel:       slog.LevelInfo,
 	}
 
 	err := config.Validate()

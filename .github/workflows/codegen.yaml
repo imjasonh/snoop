@@ -7,7 +7,7 @@ on:
 permissions: {}
 
 jobs:
-  build:
+  codegen:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -34,6 +34,8 @@ jobs:
             git add .
             git commit -m "Update generated code"
             git push
+
+            exit 1 # Workflow should fail, so the PR author reviews the changes
           else
             echo "No changes to commit"
           fi

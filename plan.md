@@ -1,22 +1,15 @@
 # Snoop: Production File Access Observer
 
-## ✅ Current Status: Milestone 2 - Core Functionality Complete
+## 🔄 Current Status: Milestone 3 - Production Hardening In Progress
 
 **Last Updated**: 2026-01-14
 
-Milestone 2 complete:
-- ✅ eBPF program with full syscall coverage (openat, execve, stat, access, readlink variants)
-- ✅ Cgroup-based filtering for targeted container monitoring
-- ✅ Ring buffer event delivery from kernel to userspace
-- ✅ Go userspace loader using cilium/ebpf
-- ✅ Build infrastructure (Dockerfile, Makefile, CI)
-- ✅ Path normalization (resolve `.`, `..`, relative paths)
-- ✅ Configurable path exclusions
-- ✅ In-memory deduplication with efficient data structure
-- ✅ Periodic JSON file output (atomic writes)
-- ✅ Graceful shutdown (flush on SIGTERM)
+Milestone 3 progress:
+- ✅ Prometheus metrics endpoint (`/metrics` on port 9090)
 
-**Next**: Milestone 3 - Production Hardening (metrics, logging, health checks)
+**Next**: Structured logging with clog
+
+See [Milestone 3](#milestone-3-production-hardening) for remaining tasks.
 
 See [Milestone 2](#milestone-2-core-functionality) for details.
 
@@ -366,7 +359,7 @@ Volume mounts:
 **Goal**: Make snoop reliable and observable for production use.
 
 **Deliverables**:
-- [ ] Prometheus metrics endpoint
+- [x] Prometheus metrics endpoint
 - [ ] Structured logging with levels (clog)
 - [ ] Ring buffer overflow handling and metrics
 - [ ] Memory-bounded deduplication (LRU or bloom filter for extreme cases)

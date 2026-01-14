@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/imjasonh/snoop/pkg/cgroup"
 	"github.com/imjasonh/snoop/pkg/ebpf"
+	"github.com/imjasonh/snoop/pkg/metrics"
 	"github.com/imjasonh/snoop/pkg/processor"
 	"github.com/imjasonh/snoop/pkg/reporter"
 )
@@ -27,6 +29,7 @@ func main() {
 		excludePaths   string
 		imageRef       string
 		containerID    string
+		metricsAddr    string
 	)
 
 	flag.StringVar(&cgroupPath, "cgroup", "", "Cgroup path to trace (e.g., /system.slice/docker-abc123.scope)")
@@ -35,14 +38,15 @@ func main() {
 	flag.StringVar(&excludePaths, "exclude", "/proc/,/sys/,/dev/", "Comma-separated path prefixes to exclude")
 	flag.StringVar(&imageRef, "image", "", "Image reference for report metadata")
 	flag.StringVar(&containerID, "container-id", "", "Container ID for report metadata")
+	flag.StringVar(&metricsAddr, "metrics-addr", ":9090", "Address for Prometheus metrics endpoint (empty to disable)")
 	flag.Parse()
 
-	if err := run(cgroupPath, reportPath, reportInterval, excludePaths, imageRef, containerID); err != nil {
+	if err := run(cgroupPath, reportPath, reportInterval, excludePaths, imageRef, containerID, metricsAddr); err != nil {
 		log.Fatalf("Error: %v", err)
 	}
 }
 
-func run(cgroupPath, reportPath string, reportInterval time.Duration, excludePaths, imageRef, containerID string) error {
+func run(cgroupPath, reportPath string, reportInterval time.Duration, excludePaths, imageRef, containerID, metricsAddr string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -54,6 +58,30 @@ func run(cgroupPath, reportPath string, reportInterval time.Duration, excludePat
 		log.Println("Received signal, shutting down...")
 		cancel()
 	}()
+
+	// Initialize metrics
+	m := metrics.New()
+
+	// Start metrics server if address is provided
+	if metricsAddr != "" {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", m.Handler())
+		server := &http.Server{
+			Addr:    metricsAddr,
+			Handler: mux,
+		}
+		go func() {
+			log.Printf("Starting metrics server on %s", metricsAddr)
+			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Printf("Metrics server error: %v", err)
+			}
+		}()
+		defer func() {
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer shutdownCancel()
+			server.Shutdown(shutdownCtx)
+		}()
+	}
 
 	// Create and load the eBPF probe
 	log.Println("Loading eBPF program...")
@@ -110,10 +138,14 @@ func run(cgroupPath, reportPath string, reportInterval time.Duration, excludePat
 		}
 		if err := rep.Update(ctx, report); err != nil {
 			log.Printf("Error writing report: %v", err)
+			m.ReportWriteErrors.Inc()
 		} else {
 			log.Printf("Report written: %d unique files, %d events processed",
 				stats.UniqueFiles, stats.EventsProcessed)
+			m.ReportWrites.Inc()
 		}
+		// Update gauge for unique files count
+		m.UniqueFiles.Set(float64(stats.UniqueFiles))
 	}
 
 	// Read and process events
@@ -150,9 +182,18 @@ func run(cgroupPath, reportPath string, reportInterval time.Duration, excludePat
 				Path:      event.Path,
 			}
 
+			// Update received counter
+			m.EventsReceived.Inc()
+
 			path, result := proc.Process(procEvent)
-			if result == processor.ResultNew {
+			switch result {
+			case processor.ResultNew:
+				m.EventsProcessed.Inc()
 				log.Printf("[NEW] %s", path)
+			case processor.ResultDuplicate:
+				m.EventsDuplicate.Inc()
+			case processor.ResultExcluded:
+				m.EventsExcluded.Inc()
 			}
 		}
 	}

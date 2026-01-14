@@ -1,5 +1,7 @@
 # Snoop
 
+![snoop](snoop.png)
+
 An eBPF-based sidecar that observes file access patterns in production containers to inform image slimming decisions.
 
 ## Overview

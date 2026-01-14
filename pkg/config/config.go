@@ -73,7 +73,7 @@ func (c *Config) Validate() error {
 
 	// Validate report path is writable (check directory exists and is writable)
 	if c.ReportPath != "" {
-		dir := c.ReportPath
+		var dir string
 		// Get directory path
 		if lastSlash := strings.LastIndex(c.ReportPath, "/"); lastSlash >= 0 {
 			dir = c.ReportPath[:lastSlash]

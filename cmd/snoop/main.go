@@ -9,12 +9,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
 	"github.com/chainguard-dev/clog"
 	"github.com/imjasonh/snoop/pkg/cgroup"
+	"github.com/imjasonh/snoop/pkg/config"
 	"github.com/imjasonh/snoop/pkg/ebpf"
 	"github.com/imjasonh/snoop/pkg/health"
 	"github.com/imjasonh/snoop/pkg/metrics"
@@ -46,15 +46,33 @@ func main() {
 	flag.IntVar(&maxUniqueFiles, "max-unique-files", 0, "Maximum unique files to track (0 = unbounded)")
 	flag.Parse()
 
-	// Initialize logging context
-	ctx := clog.WithLogger(context.Background(), clog.New(clog.ParseLevel(logLevel)))
+	// Build configuration from flags
+	cfg := &config.Config{
+		CgroupPath:     cgroupPath,
+		ReportPath:     reportPath,
+		ReportInterval: reportInterval,
+		ExcludePaths:   config.ParseExcludePaths(excludePaths),
+		ImageRef:       imageRef,
+		ContainerID:    containerID,
+		MetricsAddr:    metricsAddr,
+		LogLevel:       logLevel,
+		MaxUniqueFiles: maxUniqueFiles,
+	}
 
-	if err := run(ctx, cgroupPath, reportPath, reportInterval, excludePaths, imageRef, containerID, metricsAddr, maxUniqueFiles); err != nil {
+	// Initialize logging context
+	ctx := clog.WithLogger(context.Background(), clog.New(clog.ParseLevel(cfg.LogLevel)))
+
+	// Validate configuration
+	if err := cfg.Validate(); err != nil {
+		clog.FromContext(ctx).Fatalf("Configuration validation failed: %v", err)
+	}
+
+	if err := run(ctx, cfg); err != nil {
 		clog.FromContext(ctx).Fatalf("Fatal error: %v", err)
 	}
 }
 
-func run(ctx context.Context, cgroupPath, reportPath string, reportInterval time.Duration, excludePaths, imageRef, containerID, metricsAddr string, maxUniqueFiles int) error {
+func run(ctx context.Context, cfg *config.Config) error {
 	log := clog.FromContext(ctx)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -73,16 +91,16 @@ func run(ctx context.Context, cgroupPath, reportPath string, reportInterval time
 	healthChecker := health.New()
 
 	// Start metrics and health server if address is provided
-	if metricsAddr != "" {
+	if cfg.MetricsAddr != "" {
 		mux := http.NewServeMux()
 		mux.Handle("/metrics", m.Handler())
 		mux.Handle("/healthz", healthChecker.Handler())
 		server := &http.Server{
-			Addr:    metricsAddr,
+			Addr:    cfg.MetricsAddr,
 			Handler: mux,
 		}
 		go func() {
-			log.Infof("Starting metrics and health server on %s", metricsAddr)
+			log.Infof("Starting metrics and health server on %s", cfg.MetricsAddr)
 			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				log.Errorf("Metrics server error: %v", err)
 			}
@@ -106,40 +124,28 @@ func run(ctx context.Context, cgroupPath, reportPath string, reportInterval time
 	healthChecker.SetEBPFLoaded()
 
 	// Add cgroup to trace
-	if cgroupPath == "" {
-		log.Error("No cgroup specified. Use -cgroup flag to specify a cgroup to trace.")
-		log.Error("Example: -cgroup /system.slice/docker-abc123.scope")
-		return fmt.Errorf("no cgroup specified")
-	}
-
-	cgroupID, err := cgroup.GetCgroupIDByPath(cgroupPath)
+	cgroupID, err := cgroup.GetCgroupIDByPath(cfg.CgroupPath)
 	if err != nil {
 		return fmt.Errorf("getting cgroup ID: %w", err)
 	}
-	log.Infof("Tracing cgroup: %s (ID: %d)", cgroupPath, cgroupID)
+	log.Infof("Tracing cgroup: %s (ID: %d)", cfg.CgroupPath, cgroupID)
 	if err := probe.AddTracedCgroup(cgroupID); err != nil {
 		return fmt.Errorf("adding traced cgroup: %w", err)
 	}
 
-	// Parse exclusions
-	var exclusions []string
-	if excludePaths != "" {
-		exclusions = strings.Split(excludePaths, ",")
-	}
-
 	// Create processor and reporter
-	proc := processor.NewProcessor(ctx, exclusions, maxUniqueFiles)
-	rep := reporter.NewFileReporter(ctx, reportPath)
+	proc := processor.NewProcessor(ctx, cfg.ExcludePaths, cfg.MaxUniqueFiles)
+	rep := reporter.NewFileReporter(ctx, cfg.ReportPath)
 
 	startedAt := time.Now()
-	log.Infof("Writing reports to: %s (interval: %s)", reportPath, reportInterval)
+	log.Infof("Writing reports to: %s (interval: %s)", cfg.ReportPath, cfg.ReportInterval)
 
 	// Track last seen drops and evictions count for computing deltas
 	var lastDrops uint64
 	var lastEvicted uint64
 
 	// Start periodic report writer
-	reportTicker := time.NewTicker(reportInterval)
+	reportTicker := time.NewTicker(cfg.ReportInterval)
 	defer reportTicker.Stop()
 
 	writeReport := func() {
@@ -171,8 +177,8 @@ func run(ctx context.Context, cgroupPath, reportPath string, reportInterval time
 		}
 
 		report := &reporter.Report{
-			ContainerID:   containerID,
-			ImageRef:      imageRef,
+			ContainerID:   cfg.ContainerID,
+			ImageRef:      cfg.ImageRef,
 			StartedAt:     startedAt,
 			Files:         proc.Files(),
 			TotalEvents:   stats.EventsReceived,

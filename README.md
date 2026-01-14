@@ -90,6 +90,11 @@ snoop/
 └── plan.md           # Full technical design
 ```
 
+## Documentation
+
+- [plan.md](plan.md) - Complete technical design and roadmap
+- [RESOURCE_LIMITS.md](RESOURCE_LIMITS.md) - Resource limits and production recommendations
+
 ## Development Status
 
 See [plan.md](plan.md) for the complete technical design and roadmap.

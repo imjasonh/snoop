@@ -10,7 +10,10 @@ Milestone 1 complete, now working on Milestone 2:
 - ✅ Ring buffer event delivery from kernel to userspace
 - ✅ Go userspace loader using cilium/ebpf
 - ✅ Build infrastructure (Dockerfile, Makefile, CI)
-- ⏳ **Next**: Path normalization, deduplication, JSON reporting
+- ✅ Path normalization (resolve `.`, `..`, relative paths)
+- ✅ Configurable path exclusions
+- ✅ In-memory deduplication with efficient data structure
+- ⏳ **Next**: Periodic JSON file output, graceful shutdown
 
 See [Milestone 2](#milestone-2-core-functionality) for details.
 

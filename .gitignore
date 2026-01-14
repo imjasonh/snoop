@@ -1,5 +1,5 @@
 # Binaries
-snoop
+^snoop
 *.o
 *.a
 *.so

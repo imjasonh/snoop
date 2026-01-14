@@ -178,7 +178,7 @@ run_test() {
     echo "   Dropped events: $(jq '.dropped_events' "$REPORT_FILE")"
     echo ""
     echo "Sample files captured:"
-    jq -r '.files[] | select(startswith("/etc") or startswith("/usr")) | "     " + .' "$REPORT_FILE" | head -10
+    jq -r '.files[] | "     " + .' "$REPORT_FILE" | head -10 || echo "     (none shown)"
     ((PASSED++))
 
     # Cleanup (async - don't block)

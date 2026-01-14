@@ -13,8 +13,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/chainguard-dev/clog"
 	"github.com/imjasonh/snoop/pkg/cgroup"
 	"github.com/imjasonh/snoop/pkg/ebpf"
+	"github.com/imjasonh/snoop/pkg/health"
 	"github.com/imjasonh/snoop/pkg/metrics"
 	"github.com/imjasonh/snoop/pkg/processor"
 	"github.com/imjasonh/snoop/pkg/reporter"
@@ -66,19 +68,21 @@ func run(ctx context.Context, cgroupPath, reportPath string, reportInterval time
 		cancel()
 	}()
 
-	// Initialize metrics
+	// Initialize metrics and health checker
 	m := metrics.New()
+	healthChecker := health.New()
 
-	// Start metrics server if address is provided
+	// Start metrics and health server if address is provided
 	if metricsAddr != "" {
 		mux := http.NewServeMux()
 		mux.Handle("/metrics", m.Handler())
+		mux.Handle("/healthz", healthChecker.Handler())
 		server := &http.Server{
 			Addr:    metricsAddr,
 			Handler: mux,
 		}
 		go func() {
-			log.Infof("Starting metrics server on %s", metricsAddr)
+			log.Infof("Starting metrics and health server on %s", metricsAddr)
 			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				log.Errorf("Metrics server error: %v", err)
 			}
@@ -99,6 +103,7 @@ func run(ctx context.Context, cgroupPath, reportPath string, reportInterval time
 	defer probe.Close()
 
 	log.Info("eBPF program loaded successfully")
+	healthChecker.SetEBPFLoaded()
 
 	// Add cgroup to trace
 	if cgroupPath == "" {
@@ -180,6 +185,7 @@ func run(ctx context.Context, cgroupPath, reportPath string, reportInterval time
 			log.Infof("Report written: %d unique files, %d events processed, %d dropped, %d evicted",
 				stats.UniqueFiles, stats.EventsProcessed, drops, stats.EventsEvicted)
 			m.ReportWrites.Inc()
+			healthChecker.RecordReportWritten()
 		}
 		// Update gauge for unique files count
 		m.UniqueFiles.Set(float64(stats.UniqueFiles))
@@ -221,6 +227,7 @@ func run(ctx context.Context, cgroupPath, reportPath string, reportInterval time
 
 			// Update received counter
 			m.EventsReceived.Inc()
+			healthChecker.RecordEventReceived()
 
 			path, result := proc.Process(procEvent)
 			switch result {

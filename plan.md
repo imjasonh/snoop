@@ -9,8 +9,9 @@ Milestone 3 progress:
 - ✅ Structured logging with clog
 - ✅ Ring buffer overflow handling and metrics
 - ✅ Memory-bounded deduplication with LRU cache
+- ✅ Health check endpoint (`/healthz` on port 9090)
 
-**Next**: Health check endpoint
+**Next**: Configuration validation
 
 See [Milestone 3](#milestone-3-production-hardening) for remaining tasks.
 
@@ -366,7 +367,7 @@ Volume mounts:
 - [x] Structured logging with levels (clog)
 - [x] Ring buffer overflow handling and metrics
 - [x] Memory-bounded deduplication (LRU cache with configurable max size)
-- [ ] Health check endpoint
+- [x] Health check endpoint
 - [ ] Configuration validation
 - [ ] Resource limit recommendations documented
 

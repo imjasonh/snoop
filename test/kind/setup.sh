@@ -2,6 +2,8 @@
 # Setup script for KinD testing environment
 set -euo pipefail
 
+# Accept optional image tag as first argument
+PROVIDED_IMAGE_TAG="${1:-}"
 CLUSTER_NAME="${CLUSTER_NAME:-snoop-test}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -42,18 +44,28 @@ echo ""
 echo "Checking for BTF support:"
 kubectl debug node/snoop-test-control-plane -it --image=alpine -- ls -la /sys/kernel/btf/vmlinux 2>/dev/null || echo "  (debug check skipped)"
 
-# Build snoop image
+# Build or use provided snoop image
 echo ""
-echo "Building snoop image..."
-echo "Note: Building on macOS, eBPF generation happens in Docker multi-stage build"
+if [ -n "$PROVIDED_IMAGE_TAG" ]; then
+    echo "Using provided image: $PROVIDED_IMAGE_TAG"
+    IMAGE_TAG="$PROVIDED_IMAGE_TAG"
+    # Verify image exists
+    if ! docker image inspect "$IMAGE_TAG" >/dev/null 2>&1; then
+        echo "Error: Image $IMAGE_TAG does not exist. Please build it first."
+        exit 1
+    fi
+else
+    echo "Building snoop image..."
+    echo "Note: Building on macOS, eBPF generation happens in Docker multi-stage build"
 
-cd "$PROJECT_ROOT"
+    cd "$PROJECT_ROOT"
 
-# Use Docker to build with the existing Dockerfile
-# This handles the eBPF code generation inside a Linux container
-IMAGE_TAG="snoop:test-$(date +%s)"
-echo "Building $IMAGE_TAG..."
-docker build -t "$IMAGE_TAG" -f Dockerfile .
+    # Use Docker to build with the existing Dockerfile
+    # This handles the eBPF code generation inside a Linux container
+    IMAGE_TAG="snoop:test-$(date +%s)"
+    echo "Building $IMAGE_TAG..."
+    docker build -t "$IMAGE_TAG" -f Dockerfile .
+fi
 
 echo ""
 echo "Loading image into KinD cluster..."

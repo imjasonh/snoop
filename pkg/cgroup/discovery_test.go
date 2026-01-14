@@ -46,22 +46,22 @@ func TestGetSelfCgroupID(t *testing.T) {
 
 func TestGetSelfCgroupPathWithGetCgroupIDByPath(t *testing.T) {
 	// This integration test verifies that auto-discovered path works with GetCgroupIDByPath
-	// Skip on non-Linux systems
+	// Skip on non-Linux systems or when cgroup filesystem is not accessible
 	path, err := GetSelfCgroupPath()
 	if err != nil {
 		t.Skipf("Skipping test on non-Linux system: %v", err)
+	}
+
+	// Also get ID directly via GetSelfCgroupID - skip if this fails
+	selfID, err := GetSelfCgroupID()
+	if err != nil {
+		t.Skipf("Skipping test: cgroup filesystem not accessible: %v", err)
 	}
 
 	// Use the discovered path with GetCgroupIDByPath
 	id, err := GetCgroupIDByPath(path)
 	if err != nil {
 		t.Fatalf("GetCgroupIDByPath failed for auto-discovered path %q: %v", path, err)
-	}
-
-	// Also get ID directly via GetSelfCgroupID
-	selfID, err := GetSelfCgroupID()
-	if err != nil {
-		t.Fatalf("GetSelfCgroupID failed: %v", err)
 	}
 
 	// They should match

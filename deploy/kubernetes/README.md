@@ -7,6 +7,7 @@ This directory contains Kubernetes manifests for deploying snoop as a sidecar co
 - `rbac.yaml` - RBAC resources (ServiceAccount, ClusterRole, ClusterRoleBinding)
 - `deployment.yaml` - Example deployment with snoop sidecar and test application
 - `example-app.yaml` - Example showing how to add snoop to an nginx deployment
+- `multi-container-example.yaml` - Example showing snoop in a multi-container pod (tracing specific containers)
 
 ## Prerequisites
 
@@ -171,7 +172,8 @@ The snoop sidecar accepts the following command-line arguments:
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `-cgroup` | (required) | Cgroup path to trace |
+| `-cgroup` | (required*) | Single cgroup path to trace |
+| `-cgroups` | (required*) | Comma-separated list of cgroup paths (for multi-container pods) |
 | `-report` | `/data/snoop-report.json` | Path to write JSON reports |
 | `-interval` | `30s` | Interval between report writes |
 | `-exclude` | `/proc/,/sys/,/dev/` | Comma-separated path prefixes to exclude |
@@ -180,6 +182,130 @@ The snoop sidecar accepts the following command-line arguments:
 | `-max-unique-files` | `0` | Max unique files to track (0 = unbounded) |
 | `-container-id` | (optional) | Container ID for report metadata |
 | `-image` | (optional) | Image reference for report metadata |
+
+*Either `-cgroup` or `-cgroups` must be specified.
+
+## Multi-Container Pod Support
+
+If your pod has multiple containers and you want to trace specific containers (not all), you can use the `-cgroups` flag with multiple paths:
+
+### Method 1: Trace all containers in the pod
+
+Modify the init container to discover all container cgroups:
+
+```yaml
+initContainers:
+  - name: cgroup-finder
+    image: busybox:latest
+    command:
+      - sh
+      - -c
+      - |
+        # Get the pod cgroup (parent of our container)
+        SELF_CGROUP=$(cat /proc/self/cgroup | cut -d: -f3)
+        POD_CGROUP=$(dirname "$SELF_CGROUP")
+        
+        # List all container cgroups in the pod
+        cd "/sys/fs/cgroup$POD_CGROUP"
+        CGROUPS=""
+        for dir in */; do
+          if [ -d "$dir" ]; then
+            CGROUP_PATH="$POD_CGROUP/${dir%/}"
+            if [ -z "$CGROUPS" ]; then
+              CGROUPS="$CGROUP_PATH"
+            else
+              CGROUPS="$CGROUPS,$CGROUP_PATH"
+            fi
+          fi
+        done
+        
+        echo "$CGROUPS" > /snoop-data/cgroup-paths
+        echo "Found cgroups: $CGROUPS"
+    volumeMounts:
+      - name: snoop-data
+        mountPath: /snoop-data
+      - name: cgroup
+        mountPath: /sys/fs/cgroup
+        readOnly: true
+```
+
+Then update the snoop args to use `-cgroups`:
+
+```yaml
+args:
+  - -cgroups=$(cat /data/cgroup-paths)
+  - -report=/data/snoop-report.json
+  # ... other args
+```
+
+### Method 2: Trace specific containers by name pattern
+
+If you know the container names or IDs, you can manually specify them:
+
+```yaml
+args:
+  - -cgroups=/sys/fs/cgroup/kubepods/burstable/pod<uid>/<container1-id>,/sys/fs/cgroup/kubepods/burstable/pod<uid>/<container2-id>
+  - -report=/data/snoop-report.json
+  # ... other args
+```
+
+### Method 3: Exclude snoop's own container
+
+To trace all containers except snoop itself:
+
+```yaml
+initContainers:
+  - name: cgroup-finder
+    image: busybox:latest
+    command:
+      - sh
+      - -c
+      - |
+        # Get pod cgroup
+        SELF_CGROUP=$(cat /proc/self/cgroup | cut -d: -f3)
+        POD_CGROUP=$(dirname "$SELF_CGROUP")
+        
+        # Mark snoop's container ID to exclude it later
+        # Snoop will be the last container started, we'll filter in snoop container
+        echo "$POD_CGROUP" > /snoop-data/pod-cgroup
+    volumeMounts:
+      - name: snoop-data
+        mountPath: /snoop-data
+```
+
+Then in the snoop container, use a wrapper script to discover and filter:
+
+```yaml
+containers:
+  - name: snoop
+    # ... other config
+    command:
+      - sh
+      - -c
+      - |
+        # Discover all containers except self
+        POD_CGROUP=$(cat /data/pod-cgroup)
+        SELF_CGROUP=$(cat /proc/self/cgroup | cut -d: -f3)
+        
+        CGROUPS=""
+        cd "/sys/fs/cgroup$POD_CGROUP"
+        for dir in */; do
+          CGROUP_PATH="$POD_CGROUP/${dir%/}"
+          # Skip our own cgroup
+          if [ "/sys/fs/cgroup$CGROUP_PATH" != "/sys/fs/cgroup$SELF_CGROUP" ]; then
+            if [ -z "$CGROUPS" ]; then
+              CGROUPS="/sys/fs/cgroup$CGROUP_PATH"
+            else
+              CGROUPS="$CGROUPS,/sys/fs/cgroup$CGROUP_PATH"
+            fi
+          fi
+        done
+        
+        echo "Tracing cgroups: $CGROUPS"
+        exec /usr/local/bin/snoop -cgroups="$CGROUPS" -report=/data/snoop-report.json # ... other args
+```
+
+**Note**: The third method (excluding snoop) is more complex but ensures snoop doesn't trace its own file access, which keeps reports cleaner.
 
 ## Security Considerations
 

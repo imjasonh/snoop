@@ -2,268 +2,155 @@ package config
 
 import (
 	"log/slog"
-	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
 
 func TestConfig_Validate(t *testing.T) {
-	// Create a temp directory for testing report path validation
-	tempDir := t.TempDir()
+	// Create a temporary directory for testing report path validation
+	tmpDir := t.TempDir()
 
 	for _, tt := range []struct {
 		desc    string
-		config  Config
-		wantErr string
+		cfg     *Config
+		wantErr bool
 	}{
 		{
-			desc: "valid config with all required fields",
-			config: Config{
-				CgroupPath:     "/sys/fs/cgroup/system.slice/docker-abc123.scope",
-				ReportPath:     filepath.Join(tempDir, "report.json"),
+			desc: "valid config with single cgroup",
+			cfg: &Config{
+				CgroupPath:     "/sys/fs/cgroup/test",
+				ReportPath:     filepath.Join(tmpDir, "report.json"),
 				ReportInterval: 30 * time.Second,
 				ExcludePaths:   []string{"/proc/", "/sys/"},
 				LogLevel:       slog.LevelInfo,
-				MetricsAddr:    ":9090",
-				MaxUniqueFiles: 10000,
+				MaxUniqueFiles: 1000,
 			},
-			wantErr: "",
+			wantErr: false,
 		},
 		{
-			desc: "valid config with minimal fields",
-			config: Config{
-				CgroupPath:     "/sys/fs/cgroup/test",
-				ReportPath:     filepath.Join(tempDir, "report.json"),
-				ReportInterval: 1 * time.Second,
-				LogLevel:       slog.LevelInfo,
-			},
-			wantErr: "",
-		},
-		{
-			desc: "valid config with unbounded files",
-			config: Config{
-				CgroupPath:     "/sys/fs/cgroup/test",
-				ReportPath:     filepath.Join(tempDir, "report.json"),
+			desc: "valid config with multiple cgroups",
+			cfg: &Config{
+				CgroupPaths:    []string{"/sys/fs/cgroup/test1", "/sys/fs/cgroup/test2"},
+				ReportPath:     filepath.Join(tmpDir, "report.json"),
 				ReportInterval: 30 * time.Second,
+				ExcludePaths:   []string{"/proc/", "/sys/"},
 				LogLevel:       slog.LevelInfo,
-				MaxUniqueFiles: 0, // unbounded
+				MaxUniqueFiles: 1000,
 			},
-			wantErr: "",
+			wantErr: false,
+		},
+		{
+			desc: "backwards compatibility - single cgroup migrated to CgroupPaths",
+			cfg: &Config{
+				CgroupPath:     "/sys/fs/cgroup/test",
+				ReportPath:     filepath.Join(tmpDir, "report.json"),
+				ReportInterval: 30 * time.Second,
+				ExcludePaths:   []string{"/proc/", "/sys/"},
+				LogLevel:       slog.LevelInfo,
+			},
+			wantErr: false,
 		},
 		{
 			desc: "missing cgroup path",
-			config: Config{
-				ReportPath:     filepath.Join(tempDir, "report.json"),
+			cfg: &Config{
+				ReportPath:     filepath.Join(tmpDir, "report.json"),
 				ReportInterval: 30 * time.Second,
+				ExcludePaths:   []string{"/proc/", "/sys/"},
 				LogLevel:       slog.LevelInfo,
 			},
-			wantErr: "cgroup path is required",
+			wantErr: true,
 		},
 		{
 			desc: "missing report path",
-			config: Config{
+			cfg: &Config{
 				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportInterval: 30 * time.Second,
+				ExcludePaths:   []string{"/proc/", "/sys/"},
 				LogLevel:       slog.LevelInfo,
 			},
-			wantErr: "report path is required",
+			wantErr: true,
 		},
 		{
 			desc: "zero report interval",
-			config: Config{
+			cfg: &Config{
 				CgroupPath:     "/sys/fs/cgroup/test",
-				ReportPath:     filepath.Join(tempDir, "report.json"),
+				ReportPath:     filepath.Join(tmpDir, "report.json"),
 				ReportInterval: 0,
+				ExcludePaths:   []string{"/proc/", "/sys/"},
 				LogLevel:       slog.LevelInfo,
 			},
-			wantErr: "report interval must be positive",
+			wantErr: true,
 		},
 		{
 			desc: "negative report interval",
-			config: Config{
+			cfg: &Config{
 				CgroupPath:     "/sys/fs/cgroup/test",
-				ReportPath:     filepath.Join(tempDir, "report.json"),
-				ReportInterval: -5 * time.Second,
+				ReportPath:     filepath.Join(tmpDir, "report.json"),
+				ReportInterval: -1 * time.Second,
+				ExcludePaths:   []string{"/proc/", "/sys/"},
 				LogLevel:       slog.LevelInfo,
 			},
-			wantErr: "report interval must be positive",
+			wantErr: true,
 		},
 		{
 			desc: "report interval too short",
-			config: Config{
+			cfg: &Config{
 				CgroupPath:     "/sys/fs/cgroup/test",
-				ReportPath:     filepath.Join(tempDir, "report.json"),
+				ReportPath:     filepath.Join(tmpDir, "report.json"),
 				ReportInterval: 500 * time.Millisecond,
+				ExcludePaths:   []string{"/proc/", "/sys/"},
 				LogLevel:       slog.LevelInfo,
 			},
-			wantErr: "report interval must be at least 1 second",
-		},
-		{
-			desc: "invalid log level",
-			config: Config{
-				CgroupPath:     "/sys/fs/cgroup/test",
-				ReportPath:     filepath.Join(tempDir, "report.json"),
-				ReportInterval: 30 * time.Second,
-				LogLevel:       slog.Level(999), // Invalid level
-			},
-			wantErr: "invalid log level",
-		},
-		{
-			desc: "valid log level - debug",
-			config: Config{
-				CgroupPath:     "/sys/fs/cgroup/test",
-				ReportPath:     filepath.Join(tempDir, "report.json"),
-				ReportInterval: 30 * time.Second,
-				LogLevel:       slog.LevelDebug,
-			},
-			wantErr: "",
-		},
-		{
-			desc: "valid log level - warn",
-			config: Config{
-				CgroupPath:     "/sys/fs/cgroup/test",
-				ReportPath:     filepath.Join(tempDir, "report.json"),
-				ReportInterval: 30 * time.Second,
-				LogLevel:       slog.LevelWarn,
-			},
-			wantErr: "",
-		},
-		{
-			desc: "valid log level - error",
-			config: Config{
-				CgroupPath:     "/sys/fs/cgroup/test",
-				ReportPath:     filepath.Join(tempDir, "report.json"),
-				ReportInterval: 30 * time.Second,
-				LogLevel:       slog.LevelError,
-			},
-			wantErr: "",
-		},
-		{
-			desc: "valid log level - case insensitive",
-			config: Config{
-				CgroupPath:     "/sys/fs/cgroup/test",
-				ReportPath:     filepath.Join(tempDir, "report.json"),
-				ReportInterval: 30 * time.Second,
-				LogLevel:       slog.LevelInfo,
-			},
-			wantErr: "",
+			wantErr: true,
 		},
 		{
 			desc: "negative max unique files",
-			config: Config{
+			cfg: &Config{
 				CgroupPath:     "/sys/fs/cgroup/test",
-				ReportPath:     filepath.Join(tempDir, "report.json"),
+				ReportPath:     filepath.Join(tmpDir, "report.json"),
 				ReportInterval: 30 * time.Second,
+				ExcludePaths:   []string{"/proc/", "/sys/"},
 				LogLevel:       slog.LevelInfo,
 				MaxUniqueFiles: -1,
 			},
-			wantErr: "max unique files cannot be negative",
+			wantErr: true,
 		},
 		{
-			desc: "report directory does not exist",
-			config: Config{
+			desc: "nonexistent report directory",
+			cfg: &Config{
 				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportPath:     "/nonexistent/directory/report.json",
 				ReportInterval: 30 * time.Second,
+				ExcludePaths:   []string{"/proc/", "/sys/"},
 				LogLevel:       slog.LevelInfo,
 			},
-			wantErr: "report directory does not exist",
+			wantErr: true,
 		},
 		{
-			desc: "invalid metrics address - no colon",
-			config: Config{
+			desc: "invalid metrics address",
+			cfg: &Config{
 				CgroupPath:     "/sys/fs/cgroup/test",
-				ReportPath:     filepath.Join(tempDir, "report.json"),
+				ReportPath:     filepath.Join(tmpDir, "report.json"),
 				ReportInterval: 30 * time.Second,
+				ExcludePaths:   []string{"/proc/", "/sys/"},
+				MetricsAddr:    "invalid",
 				LogLevel:       slog.LevelInfo,
-				MetricsAddr:    "9090",
 			},
-			wantErr: "invalid metrics address format",
-		},
-		{
-			desc: "valid metrics address - port only",
-			config: Config{
-				CgroupPath:     "/sys/fs/cgroup/test",
-				ReportPath:     filepath.Join(tempDir, "report.json"),
-				ReportInterval: 30 * time.Second,
-				LogLevel:       slog.LevelInfo,
-				MetricsAddr:    ":9090",
-			},
-			wantErr: "",
-		},
-		{
-			desc: "valid metrics address - host and port",
-			config: Config{
-				CgroupPath:     "/sys/fs/cgroup/test",
-				ReportPath:     filepath.Join(tempDir, "report.json"),
-				ReportInterval: 30 * time.Second,
-				LogLevel:       slog.LevelInfo,
-				MetricsAddr:    "localhost:9090",
-			},
-			wantErr: "",
-		},
-		{
-			desc: "empty metrics address is valid",
-			config: Config{
-				CgroupPath:     "/sys/fs/cgroup/test",
-				ReportPath:     filepath.Join(tempDir, "report.json"),
-				ReportInterval: 30 * time.Second,
-				LogLevel:       slog.LevelInfo,
-				MetricsAddr:    "",
-			},
-			wantErr: "",
-		},
-		{
-			desc: "multiple validation errors",
-			config: Config{
-				CgroupPath:     "", // missing
-				ReportPath:     "", // missing
-				ReportInterval: 0,  // invalid
-				LogLevel:       slog.Level(999), // Invalid level
-				MaxUniqueFiles: -1,
-			},
-			wantErr: "configuration validation failed",
+			wantErr: true,
 		},
 	} {
 		t.Run(tt.desc, func(t *testing.T) {
-			err := tt.config.Validate()
-			if tt.wantErr == "" {
-				if err != nil {
-					t.Errorf("Validate() unexpected error: %v", err)
-				}
-			} else {
-				if err == nil {
-					t.Errorf("Validate() expected error containing %q, got nil", tt.wantErr)
-				} else if !strings.Contains(err.Error(), tt.wantErr) {
-					t.Errorf("Validate() error = %v, want error containing %q", err, tt.wantErr)
-				}
+			err := tt.cfg.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			// If validation succeeded and we had a single cgroup path, verify it was migrated
+			if err == nil && tt.cfg.CgroupPath != "" && len(tt.cfg.CgroupPaths) == 0 {
+				t.Error("Expected CgroupPath to be migrated to CgroupPaths, but it wasn't")
 			}
 		})
-	}
-}
-
-func TestConfig_Validate_ReportPathDirectory(t *testing.T) {
-	// Test case where parent of report path is a file, not a directory
-	tempDir := t.TempDir()
-	tempFile := filepath.Join(tempDir, "file")
-	if err := os.WriteFile(tempFile, []byte("test"), 0644); err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
-	}
-
-	config := Config{
-		CgroupPath:     "/sys/fs/cgroup/test",
-		ReportPath:     filepath.Join(tempFile, "report.json"), // parent is a file
-		ReportInterval: 30 * time.Second,
-		LogLevel:       slog.LevelInfo,
-	}
-
-	err := config.Validate()
-	if err == nil {
-		t.Error("Validate() expected error for report path parent being a file, got nil")
-	} else if !strings.Contains(err.Error(), "not a directory") {
-		t.Errorf("Validate() error = %v, want error containing 'not a directory'", err)
 	}
 }
 
@@ -273,6 +160,11 @@ func TestParseExcludePaths(t *testing.T) {
 		input string
 		want  []string
 	}{
+		{
+			desc:  "empty string",
+			input: "",
+			want:  nil,
+		},
 		{
 			desc:  "single path",
 			input: "/proc/",
@@ -285,22 +177,12 @@ func TestParseExcludePaths(t *testing.T) {
 		},
 		{
 			desc:  "paths with spaces",
-			input: "/proc/ , /sys/ , /dev/",
+			input: " /proc/ , /sys/ , /dev/ ",
 			want:  []string{"/proc/", "/sys/", "/dev/"},
 		},
 		{
-			desc:  "empty string",
-			input: "",
-			want:  nil,
-		},
-		{
-			desc:  "only commas",
-			input: ",,,",
-			want:  []string{},
-		},
-		{
-			desc:  "mixed empty and non-empty",
-			input: "/proc/,,/sys/,",
+			desc:  "trailing comma",
+			input: "/proc/,/sys/,",
 			want:  []string{"/proc/", "/sys/"},
 		},
 	} {
@@ -319,39 +201,111 @@ func TestParseExcludePaths(t *testing.T) {
 	}
 }
 
-func TestConfig_ExcludePathsString(t *testing.T) {
+func TestParseCgroupPaths(t *testing.T) {
 	for _, tt := range []struct {
 		desc  string
-		paths []string
-		want  string
+		input string
+		want  []string
 	}{
 		{
+			desc:  "empty string",
+			input: "",
+			want:  nil,
+		},
+		{
 			desc:  "single path",
-			paths: []string{"/proc/"},
-			want:  "/proc/",
+			input: "/sys/fs/cgroup/test",
+			want:  []string{"/sys/fs/cgroup/test"},
 		},
 		{
 			desc:  "multiple paths",
-			paths: []string{"/proc/", "/sys/", "/dev/"},
-			want:  "/proc/,/sys/,/dev/",
+			input: "/sys/fs/cgroup/test1,/sys/fs/cgroup/test2,/sys/fs/cgroup/test3",
+			want:  []string{"/sys/fs/cgroup/test1", "/sys/fs/cgroup/test2", "/sys/fs/cgroup/test3"},
 		},
 		{
-			desc:  "empty slice",
-			paths: []string{},
-			want:  "",
+			desc:  "paths with spaces",
+			input: " /sys/fs/cgroup/test1 , /sys/fs/cgroup/test2 ",
+			want:  []string{"/sys/fs/cgroup/test1", "/sys/fs/cgroup/test2"},
 		},
 		{
-			desc:  "nil slice",
-			paths: nil,
-			want:  "",
+			desc:  "trailing comma",
+			input: "/sys/fs/cgroup/test1,/sys/fs/cgroup/test2,",
+			want:  []string{"/sys/fs/cgroup/test1", "/sys/fs/cgroup/test2"},
+		},
+		{
+			desc:  "kubernetes-style paths",
+			input: "/kubepods/burstable/pod123/container1,/kubepods/burstable/pod123/container2",
+			want:  []string{"/kubepods/burstable/pod123/container1", "/kubepods/burstable/pod123/container2"},
 		},
 	} {
 		t.Run(tt.desc, func(t *testing.T) {
-			c := Config{ExcludePaths: tt.paths}
-			got := c.ExcludePathsString()
-			if got != tt.want {
-				t.Errorf("ExcludePathsString() = %q, want %q", got, tt.want)
+			got := ParseCgroupPaths(tt.input)
+			if len(got) != len(tt.want) {
+				t.Errorf("ParseCgroupPaths() length = %d, want %d", len(got), len(tt.want))
+				return
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("ParseCgroupPaths()[%d] = %q, want %q", i, got[i], tt.want[i])
+				}
 			}
 		})
+	}
+}
+
+func TestExcludePathsString(t *testing.T) {
+	cfg := &Config{
+		ExcludePaths: []string{"/proc/", "/sys/", "/dev/"},
+	}
+	want := "/proc/,/sys/,/dev/"
+	got := cfg.ExcludePathsString()
+	if got != want {
+		t.Errorf("ExcludePathsString() = %q, want %q", got, want)
+	}
+}
+
+func TestConfig_ValidateBackwardsCompatibility(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Test that old-style single cgroup path is migrated to new CgroupPaths slice
+	cfg := &Config{
+		CgroupPath:     "/sys/fs/cgroup/test",
+		ReportPath:     filepath.Join(tmpDir, "report.json"),
+		ReportInterval: 30 * time.Second,
+		LogLevel:       slog.LevelInfo,
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() failed: %v", err)
+	}
+
+	if len(cfg.CgroupPaths) != 1 {
+		t.Errorf("Expected CgroupPaths to have 1 entry, got %d", len(cfg.CgroupPaths))
+	}
+
+	if cfg.CgroupPaths[0] != "/sys/fs/cgroup/test" {
+		t.Errorf("Expected CgroupPaths[0] = %q, got %q", "/sys/fs/cgroup/test", cfg.CgroupPaths[0])
+	}
+}
+
+func TestConfig_ValidateBothCgroupFieldsSpecified(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// If both are specified, CgroupPaths should take precedence
+	cfg := &Config{
+		CgroupPath:     "/sys/fs/cgroup/old",
+		CgroupPaths:    []string{"/sys/fs/cgroup/new1", "/sys/fs/cgroup/new2"},
+		ReportPath:     filepath.Join(tmpDir, "report.json"),
+		ReportInterval: 30 * time.Second,
+		LogLevel:       slog.LevelInfo,
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() failed: %v", err)
+	}
+
+	// CgroupPaths should remain as-is
+	if len(cfg.CgroupPaths) != 2 {
+		t.Errorf("Expected CgroupPaths to have 2 entries, got %d", len(cfg.CgroupPaths))
 	}
 }

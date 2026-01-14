@@ -1,0 +1,267 @@
+# Example of using snoop in a multi-container pod
+#
+# This example shows a pod with:
+# - An nginx web server (main app)
+# - A log shipper sidecar (simulated with busybox)
+# - Snoop sidecar that traces ONLY the nginx container
+#
+# This demonstrates how to selectively trace specific containers in a pod.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: multi-container-example
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: multi-container-app
+  namespace: multi-container-example
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: multi-container-app
+  namespace: multi-container-example
+  labels:
+    app: multi-container-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: multi-container-demo
+  template:
+    metadata:
+      labels:
+        app: multi-container-demo
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: multi-container-app
+
+      volumes:
+        - name: snoop-data
+          emptyDir: {}
+        - name: cgroup
+          hostPath:
+            path: /sys/fs/cgroup
+            type: Directory
+        - name: debugfs
+          hostPath:
+            path: /sys/kernel/debug
+            type: Directory
+        - name: shared-logs
+          emptyDir: {}
+
+      initContainers:
+        # This init container discovers the pod cgroup path
+        # The snoop container will later filter out its own cgroup
+        - name: cgroup-finder
+          image: busybox:latest
+          command:
+            - sh
+            - -c
+            - |
+              # Get pod cgroup (parent directory of our cgroup)
+              SELF_CGROUP=$(cat /proc/self/cgroup | cut -d: -f3)
+              POD_CGROUP=$(dirname "$SELF_CGROUP")
+              echo "Pod cgroup: $POD_CGROUP"
+              echo "$POD_CGROUP" > /snoop-data/pod-cgroup
+          volumeMounts:
+            - name: snoop-data
+              mountPath: /snoop-data
+
+      containers:
+        # Main application: nginx web server
+        - name: nginx
+          image: nginx:1.25-alpine
+          ports:
+            - name: http
+              containerPort: 80
+          volumeMounts:
+            - name: shared-logs
+              mountPath: /var/log/nginx
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+
+        # Log shipper sidecar (simulated - in practice this might be fluentd, filebeat, etc.)
+        - name: log-shipper
+          image: busybox:latest
+          command:
+            - sh
+            - -c
+            - |
+              echo "Log shipper starting..."
+              while true; do
+                # Simulate reading logs
+                if [ -f /logs/access.log ]; then
+                  tail -n 1 /logs/access.log 2>/dev/null || true
+                fi
+                sleep 5
+              done
+          volumeMounts:
+            - name: shared-logs
+              mountPath: /logs
+              readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
+
+        # Snoop sidecar - configured to trace ALL containers EXCEPT itself
+        - name: snoop
+          image: ghcr.io/imjasonh/snoop:latest
+          imagePullPolicy: Always
+
+          securityContext:
+            privileged: false
+            capabilities:
+              add:
+                - SYS_ADMIN
+                - BPF
+                - PERFMON
+            readOnlyRootFilesystem: true
+
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+
+          # Use a shell wrapper to discover containers and exclude self
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+
+              echo "Discovering container cgroups..."
+
+              POD_CGROUP=$(cat /data/pod-cgroup)
+              SELF_CGROUP=$(cat /proc/self/cgroup | cut -d: -f3)
+
+              echo "Pod cgroup: $POD_CGROUP"
+              echo "Self cgroup: $SELF_CGROUP"
+
+              # Build list of all container cgroups except our own
+              CGROUPS=""
+              cd "/sys/fs/cgroup$POD_CGROUP"
+
+              for dir in */; do
+                if [ ! -d "$dir" ]; then
+                  continue
+                fi
+
+                # Remove trailing slash
+                dir_name="${dir%/}"
+                CGROUP_PATH="$POD_CGROUP/$dir_name"
+                FULL_PATH="/sys/fs/cgroup$CGROUP_PATH"
+
+                # Skip our own cgroup
+                if [ "$FULL_PATH" = "/sys/fs/cgroup$SELF_CGROUP" ]; then
+                  echo "Skipping self: $CGROUP_PATH"
+                  continue
+                fi
+
+                # Add to list
+                if [ -z "$CGROUPS" ]; then
+                  CGROUPS="$FULL_PATH"
+                else
+                  CGROUPS="$CGROUPS,$FULL_PATH"
+                fi
+
+                echo "Will trace: $CGROUP_PATH"
+              done
+
+              if [ -z "$CGROUPS" ]; then
+                echo "ERROR: No cgroups found to trace"
+                exit 1
+              fi
+
+              echo "Starting snoop with cgroups: $CGROUPS"
+
+              # Start snoop with discovered cgroups
+              exec /usr/local/bin/snoop \
+                -cgroups="$CGROUPS" \
+                -report=/data/snoop-report.json \
+                -interval=30s \
+                -exclude=/proc/,/sys/,/dev/,/var/log/nginx \
+                -metrics-addr=:9090 \
+                -log-level=info \
+                -max-unique-files=50000 \
+                -container-id="$POD_NAME" \
+                -image=nginx:1.25-alpine
+
+          volumeMounts:
+            - name: snoop-data
+              mountPath: /data
+            - name: cgroup
+              mountPath: /sys/fs/cgroup
+              readOnly: true
+            - name: debugfs
+              mountPath: /sys/kernel/debug
+              readOnly: true
+
+          ports:
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9090
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: multi-container-app
+  namespace: multi-container-example
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+      protocol: TCP
+    - name: metrics
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+  selector:
+    app: multi-container-demo

@@ -1139,8 +1139,6 @@ Once this testing plan is complete and issues addressed:
 1. ✅ Mark current Milestone 4 tasks as complete (if tests pass)
 2. 🔄 Fix any issues found during testing
 3. 📝 Update documentation based on findings
-4. ➡️ Proceed with Helm chart development
-5. ➡️ Test Helm deployment in KinD
 6. ➡️ Test on real cluster (GKE/EKS)
 7. ➡️ Move to Milestone 5 (Multi-Deployment Aggregation)
 

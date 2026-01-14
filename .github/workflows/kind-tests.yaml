@@ -2,64 +2,63 @@ name: KinD Integration Tests
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   kind-tests:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: '1.21'
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-    - name: Install KinD
-      run: |
-        # Install KinD
-        curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
-        chmod +x ./kind
-        sudo mv ./kind /usr/local/bin/kind
+      - name: Install KinD
+        run: |
+          # Install KinD
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
 
-    - name: Install kubectl
-      run: |
-        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-        chmod +x kubectl
-        sudo mv kubectl /usr/local/bin/kubectl
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "latest"
 
-    - name: Install jq
-      run: sudo apt-get update && sudo apt-get install -y jq
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
 
-    - name: Build Docker image
-      run: |
-        docker build -t snoop:ci-test .
+      - name: Build Docker image
+        run: |
+          docker build -t snoop:ci-test .
 
-    - name: Set up KinD cluster
-      run: |
-        cd test/kind
-        ./setup.sh snoop:ci-test
+      - name: Set up KinD cluster
+        run: |
+          cd test/kind
+          ./setup.sh snoop:ci-test
 
-    - name: Run KinD integration tests
-      run: |
-        cd test/kind
-        IMAGE_TAG=snoop:ci-test ./run-tests.sh
+      - name: Run KinD integration tests
+        run: |
+          cd test/kind
+          IMAGE_TAG=snoop:ci-test ./run-tests.sh
 
-    - name: Upload test results
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: kind-test-results
-        path: test/kind/results/
-        retention-days: 7
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kind-test-results
+          path: test/kind/results/
+          retention-days: 7
 
-    - name: Clean up
-      if: always()
-      run: |
-        kind delete cluster --name snoop-test || true
+      - name: Clean up
+        if: always()
+        run: |
+          kind delete cluster --name snoop-test || true

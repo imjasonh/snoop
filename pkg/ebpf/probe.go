@@ -195,6 +195,17 @@ func (p *Probe) ReadEvent(ctx context.Context) (*Event, error) {
 	return event, nil
 }
 
+// Drops returns the total number of events dropped due to ring buffer overflow
+// This reads the counter from the eBPF dropped_events map
+func (p *Probe) Drops() (uint64, error) {
+	var key uint32 = 0
+	var drops uint64
+	if err := p.objs.DroppedEvents.Lookup(&key, &drops); err != nil {
+		return 0, fmt.Errorf("reading dropped events counter: %w", err)
+	}
+	return drops, nil
+}
+
 // Close cleans up all resources
 func (p *Probe) Close() error {
 	var errs []error

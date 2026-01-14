@@ -37,6 +37,14 @@ struct {
     __type(value, u8);     // dummy value (presence = traced)
 } traced_cgroups SEC(".maps");
 
+// Counter for tracking dropped events due to ring buffer overflow
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, u32);
+    __type(value, u64);
+} dropped_events SEC(".maps");
+
 // Helper to check if current task's cgroup should be traced
 static __always_inline bool should_trace() {
     struct task_struct *task = (struct task_struct *)bpf_get_current_task();
@@ -45,6 +53,19 @@ static __always_inline bool should_trace() {
     // If no cgroups are configured, don't trace anything
     u8 *val = bpf_map_lookup_elem(&traced_cgroups, &cgroup_id);
     return val != NULL;
+}
+
+// Helper to submit event to ring buffer and track drops
+static __always_inline void submit_event(struct event *e) {
+    int ret = bpf_ringbuf_output(&events, e, sizeof(*e), 0);
+    if (ret != 0) {
+        // Ring buffer is full, increment drop counter
+        u32 key = 0;
+        u64 *drop_count = bpf_map_lookup_elem(&dropped_events, &key);
+        if (drop_count) {
+            __sync_fetch_and_add(drop_count, 1);
+        }
+    }
 }
 
 // Tracepoint for openat syscall
@@ -75,7 +96,7 @@ int trace_openat(struct trace_event_raw_sys_enter *ctx) {
     bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname);
     
     // Submit event to ring buffer
-    bpf_ringbuf_output(&events, e, sizeof(*e), 0);
+    submit_event(e);
     
     return 0;
 }
@@ -102,7 +123,7 @@ int trace_execve(struct trace_event_raw_sys_enter *ctx) {
     const char *pathname = (const char *)ctx->args[0];
     bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname);
     
-    bpf_ringbuf_output(&events, e, sizeof(*e), 0);
+    submit_event(e);
     
     return 0;
 }
@@ -129,7 +150,7 @@ int trace_execveat(struct trace_event_raw_sys_enter *ctx) {
     const char *pathname = (const char *)ctx->args[1];
     bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname);
     
-    bpf_ringbuf_output(&events, e, sizeof(*e), 0);
+    submit_event(e);
     
     return 0;
 }
@@ -156,7 +177,7 @@ int trace_openat2(struct trace_event_raw_sys_enter *ctx) {
     const char *pathname = (const char *)ctx->args[1];
     bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname);
     
-    bpf_ringbuf_output(&events, e, sizeof(*e), 0);
+    submit_event(e);
     
     return 0;
 }
@@ -183,7 +204,7 @@ int trace_statx(struct trace_event_raw_sys_enter *ctx) {
     const char *pathname = (const char *)ctx->args[1];
     bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname);
     
-    bpf_ringbuf_output(&events, e, sizeof(*e), 0);
+    submit_event(e);
     
     return 0;
 }
@@ -210,7 +231,7 @@ int trace_newfstatat(struct trace_event_raw_sys_enter *ctx) {
     const char *pathname = (const char *)ctx->args[1];
     bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname);
     
-    bpf_ringbuf_output(&events, e, sizeof(*e), 0);
+    submit_event(e);
     
     return 0;
 }
@@ -237,7 +258,7 @@ int trace_faccessat(struct trace_event_raw_sys_enter *ctx) {
     const char *pathname = (const char *)ctx->args[1];
     bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname);
     
-    bpf_ringbuf_output(&events, e, sizeof(*e), 0);
+    submit_event(e);
     
     return 0;
 }
@@ -264,7 +285,7 @@ int trace_faccessat2(struct trace_event_raw_sys_enter *ctx) {
     const char *pathname = (const char *)ctx->args[1];
     bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname);
     
-    bpf_ringbuf_output(&events, e, sizeof(*e), 0);
+    submit_event(e);
     
     return 0;
 }
@@ -291,7 +312,7 @@ int trace_readlinkat(struct trace_event_raw_sys_enter *ctx) {
     const char *pathname = (const char *)ctx->args[1];
     bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname);
     
-    bpf_ringbuf_output(&events, e, sizeof(*e), 0);
+    submit_event(e);
     
     return 0;
 }

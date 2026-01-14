@@ -127,26 +127,45 @@ func run(ctx context.Context, cgroupPath, reportPath string, reportInterval time
 	startedAt := time.Now()
 	log.Infof("Writing reports to: %s (interval: %s)", reportPath, reportInterval)
 
+	// Track last seen drops count for computing delta
+	var lastDrops uint64
+
 	// Start periodic report writer
 	reportTicker := time.NewTicker(reportInterval)
 	defer reportTicker.Stop()
 
 	writeReport := func() {
 		stats := proc.Stats()
+		drops, err := probe.Drops()
+		if err != nil {
+			log.Warnf("Failed to read drops counter: %v", err)
+			drops = 0
+		}
+
+		// Update the drops counter metric with the delta
+		if drops > lastDrops {
+			delta := drops - lastDrops
+			m.EventsDropped.Add(float64(delta))
+			if delta > 0 {
+				log.Warnf("Ring buffer overflow: %d events dropped since last report", delta)
+			}
+			lastDrops = drops
+		}
+
 		report := &reporter.Report{
 			ContainerID:   containerID,
 			ImageRef:      imageRef,
 			StartedAt:     startedAt,
 			Files:         proc.Files(),
 			TotalEvents:   stats.EventsReceived,
-			DroppedEvents: 0, // TODO: track ring buffer drops
+			DroppedEvents: drops,
 		}
 		if err := rep.Update(ctx, report); err != nil {
 			log.Errorf("Error writing report: %v", err)
 			m.ReportWriteErrors.Inc()
 		} else {
-			log.Infof("Report written: %d unique files, %d events processed",
-				stats.UniqueFiles, stats.EventsProcessed)
+			log.Infof("Report written: %d unique files, %d events processed, %d dropped",
+				stats.UniqueFiles, stats.EventsProcessed, drops)
 			m.ReportWrites.Inc()
 		}
 		// Update gauge for unique files count

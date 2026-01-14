@@ -57,6 +57,7 @@ func NewProbe() (*Probe, error) {
 
 // attachTracepoints attaches the eBPF programs to syscall tracepoints
 func (p *Probe) attachTracepoints() error {
+	// Required tracepoints (must exist on all supported kernels)
 	// Attach openat tracepoint
 	l, err := link.Tracepoint("syscalls", "sys_enter_openat", p.objs.TraceOpenat, nil)
 	if err != nil {
@@ -70,6 +71,48 @@ func (p *Probe) attachTracepoints() error {
 		return fmt.Errorf("attaching execve tracepoint: %w", err)
 	}
 	p.links = append(p.links, l)
+
+	// Attach newfstatat tracepoint (fstatat/stat)
+	l, err = link.Tracepoint("syscalls", "sys_enter_newfstatat", p.objs.TraceNewfstatat, nil)
+	if err != nil {
+		return fmt.Errorf("attaching newfstatat tracepoint: %w", err)
+	}
+	p.links = append(p.links, l)
+
+	// Attach faccessat tracepoint (access)
+	l, err = link.Tracepoint("syscalls", "sys_enter_faccessat", p.objs.TraceFaccessat, nil)
+	if err != nil {
+		return fmt.Errorf("attaching faccessat tracepoint: %w", err)
+	}
+	p.links = append(p.links, l)
+
+	// Attach readlinkat tracepoint (readlink)
+	l, err = link.Tracepoint("syscalls", "sys_enter_readlinkat", p.objs.TraceReadlinkat, nil)
+	if err != nil {
+		return fmt.Errorf("attaching readlinkat tracepoint: %w", err)
+	}
+	p.links = append(p.links, l)
+
+	// Optional tracepoints (may not exist on older kernels)
+	// execveat - exec with dirfd
+	if l, err = link.Tracepoint("syscalls", "sys_enter_execveat", p.objs.TraceExecveat, nil); err == nil {
+		p.links = append(p.links, l)
+	}
+
+	// openat2 - kernel 5.6+
+	if l, err = link.Tracepoint("syscalls", "sys_enter_openat2", p.objs.TraceOpenat2, nil); err == nil {
+		p.links = append(p.links, l)
+	}
+
+	// statx - kernel 4.11+
+	if l, err = link.Tracepoint("syscalls", "sys_enter_statx", p.objs.TraceStatx, nil); err == nil {
+		p.links = append(p.links, l)
+	}
+
+	// faccessat2 - kernel 5.8+
+	if l, err = link.Tracepoint("syscalls", "sys_enter_faccessat2", p.objs.TraceFaccessat2, nil); err == nil {
+		p.links = append(p.links, l)
+	}
 
 	return nil
 }

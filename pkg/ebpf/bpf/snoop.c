@@ -81,6 +81,7 @@ int trace_openat(struct trace_event_raw_sys_enter *ctx) {
 }
 
 // Tracepoint for execve syscall
+// execve(const char *pathname, char *const argv[], char *const envp[])
 SEC("tracepoint/syscalls/sys_enter_execve")
 int trace_execve(struct trace_event_raw_sys_enter *ctx) {
     if (!should_trace()) {
@@ -99,6 +100,195 @@ int trace_execve(struct trace_event_raw_sys_enter *ctx) {
     e->syscall_nr = ctx->id;
     
     const char *pathname = (const char *)ctx->args[0];
+    bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname);
+    
+    bpf_ringbuf_output(&events, e, sizeof(*e), 0);
+    
+    return 0;
+}
+
+// Tracepoint for execveat syscall
+// execveat(int dirfd, const char *pathname, char *const argv[], char *const envp[], int flags)
+SEC("tracepoint/syscalls/sys_enter_execveat")
+int trace_execveat(struct trace_event_raw_sys_enter *ctx) {
+    if (!should_trace()) {
+        return 0;
+    }
+    
+    u32 zero = 0;
+    struct event *e = bpf_map_lookup_elem(&heap, &zero);
+    if (!e) {
+        return 0;
+    }
+    
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    e->cgroup_id = BPF_CORE_READ(task, cgroups, dfl_cgrp, kn, id);
+    e->pid = bpf_get_current_pid_tgid() >> 32;
+    e->syscall_nr = ctx->id;
+    
+    const char *pathname = (const char *)ctx->args[1];
+    bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname);
+    
+    bpf_ringbuf_output(&events, e, sizeof(*e), 0);
+    
+    return 0;
+}
+
+// Tracepoint for openat2 syscall (kernel 5.6+)
+// openat2(int dirfd, const char *pathname, struct open_how *how, size_t size)
+SEC("tracepoint/syscalls/sys_enter_openat2")
+int trace_openat2(struct trace_event_raw_sys_enter *ctx) {
+    if (!should_trace()) {
+        return 0;
+    }
+    
+    u32 zero = 0;
+    struct event *e = bpf_map_lookup_elem(&heap, &zero);
+    if (!e) {
+        return 0;
+    }
+    
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    e->cgroup_id = BPF_CORE_READ(task, cgroups, dfl_cgrp, kn, id);
+    e->pid = bpf_get_current_pid_tgid() >> 32;
+    e->syscall_nr = ctx->id;
+    
+    const char *pathname = (const char *)ctx->args[1];
+    bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname);
+    
+    bpf_ringbuf_output(&events, e, sizeof(*e), 0);
+    
+    return 0;
+}
+
+// Tracepoint for statx syscall (kernel 4.11+)
+// statx(int dirfd, const char *pathname, int flags, unsigned int mask, struct statx *statxbuf)
+SEC("tracepoint/syscalls/sys_enter_statx")
+int trace_statx(struct trace_event_raw_sys_enter *ctx) {
+    if (!should_trace()) {
+        return 0;
+    }
+    
+    u32 zero = 0;
+    struct event *e = bpf_map_lookup_elem(&heap, &zero);
+    if (!e) {
+        return 0;
+    }
+    
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    e->cgroup_id = BPF_CORE_READ(task, cgroups, dfl_cgrp, kn, id);
+    e->pid = bpf_get_current_pid_tgid() >> 32;
+    e->syscall_nr = ctx->id;
+    
+    const char *pathname = (const char *)ctx->args[1];
+    bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname);
+    
+    bpf_ringbuf_output(&events, e, sizeof(*e), 0);
+    
+    return 0;
+}
+
+// Tracepoint for newfstatat syscall
+// newfstatat(int dirfd, const char *pathname, struct stat *statbuf, int flags)
+SEC("tracepoint/syscalls/sys_enter_newfstatat")
+int trace_newfstatat(struct trace_event_raw_sys_enter *ctx) {
+    if (!should_trace()) {
+        return 0;
+    }
+    
+    u32 zero = 0;
+    struct event *e = bpf_map_lookup_elem(&heap, &zero);
+    if (!e) {
+        return 0;
+    }
+    
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    e->cgroup_id = BPF_CORE_READ(task, cgroups, dfl_cgrp, kn, id);
+    e->pid = bpf_get_current_pid_tgid() >> 32;
+    e->syscall_nr = ctx->id;
+    
+    const char *pathname = (const char *)ctx->args[1];
+    bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname);
+    
+    bpf_ringbuf_output(&events, e, sizeof(*e), 0);
+    
+    return 0;
+}
+
+// Tracepoint for faccessat syscall
+// faccessat(int dirfd, const char *pathname, int mode)
+SEC("tracepoint/syscalls/sys_enter_faccessat")
+int trace_faccessat(struct trace_event_raw_sys_enter *ctx) {
+    if (!should_trace()) {
+        return 0;
+    }
+    
+    u32 zero = 0;
+    struct event *e = bpf_map_lookup_elem(&heap, &zero);
+    if (!e) {
+        return 0;
+    }
+    
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    e->cgroup_id = BPF_CORE_READ(task, cgroups, dfl_cgrp, kn, id);
+    e->pid = bpf_get_current_pid_tgid() >> 32;
+    e->syscall_nr = ctx->id;
+    
+    const char *pathname = (const char *)ctx->args[1];
+    bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname);
+    
+    bpf_ringbuf_output(&events, e, sizeof(*e), 0);
+    
+    return 0;
+}
+
+// Tracepoint for faccessat2 syscall (kernel 5.8+)
+// faccessat2(int dirfd, const char *pathname, int mode, int flags)
+SEC("tracepoint/syscalls/sys_enter_faccessat2")
+int trace_faccessat2(struct trace_event_raw_sys_enter *ctx) {
+    if (!should_trace()) {
+        return 0;
+    }
+    
+    u32 zero = 0;
+    struct event *e = bpf_map_lookup_elem(&heap, &zero);
+    if (!e) {
+        return 0;
+    }
+    
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    e->cgroup_id = BPF_CORE_READ(task, cgroups, dfl_cgrp, kn, id);
+    e->pid = bpf_get_current_pid_tgid() >> 32;
+    e->syscall_nr = ctx->id;
+    
+    const char *pathname = (const char *)ctx->args[1];
+    bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname);
+    
+    bpf_ringbuf_output(&events, e, sizeof(*e), 0);
+    
+    return 0;
+}
+
+// Tracepoint for readlinkat syscall
+// readlinkat(int dirfd, const char *pathname, char *buf, size_t bufsiz)
+SEC("tracepoint/syscalls/sys_enter_readlinkat")
+int trace_readlinkat(struct trace_event_raw_sys_enter *ctx) {
+    if (!should_trace()) {
+        return 0;
+    }
+    
+    u32 zero = 0;
+    struct event *e = bpf_map_lookup_elem(&heap, &zero);
+    if (!e) {
+        return 0;
+    }
+    
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    e->cgroup_id = BPF_CORE_READ(task, cgroups, dfl_cgrp, kn, id);
+    e->pid = bpf_get_current_pid_tgid() >> 32;
+    e->syscall_nr = ctx->id;
+    
+    const char *pathname = (const char *)ctx->args[1];
     bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname);
     
     bpf_ringbuf_output(&events, e, sizeof(*e), 0);

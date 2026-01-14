@@ -1,18 +1,18 @@
 # Snoop: Production File Access Observer
 
-## 🚧 Current Status: Milestone 1 - Proof of Concept Complete
+## 🚧 Current Status: Milestone 2 - Core Functionality In Progress
 
 **Last Updated**: 2026-01-14
 
-The foundational infrastructure for Snoop has been implemented:
-- ✅ eBPF program with `openat` and `execve` tracing
+Milestone 1 complete, now working on Milestone 2:
+- ✅ eBPF program with full syscall coverage (openat, execve, stat, access, readlink variants)
 - ✅ Cgroup-based filtering for targeted container monitoring
 - ✅ Ring buffer event delivery from kernel to userspace
 - ✅ Go userspace loader using cilium/ebpf
 - ✅ Build infrastructure (Dockerfile, Makefile, CI)
-- ⏳ **Next**: Test on Linux system with Docker containers
+- ⏳ **Next**: Path normalization, deduplication, JSON reporting
 
-See [Milestone 1](#milestone-1-ebpf-proof-of-concept--in-progress) for details.
+See [Milestone 2](#milestone-2-core-functionality) for details.
 
 ---
 
@@ -302,7 +302,7 @@ Volume mounts:
 
 ## Milestones
 
-### Milestone 1: eBPF Proof of Concept ✅ IN PROGRESS
+### Milestone 1: eBPF Proof of Concept ✅ COMPLETE
 
 **Goal**: Prove we can trace file syscalls and filter by cgroup from a container.
 
@@ -314,11 +314,6 @@ Volume mounts:
 - [x] Docker Compose file to test locally with a sample app
 - [x] Cgroup discovery utilities
 - [x] Helper scripts for finding container cgroups
-- [ ] vmlinux.h generation (requires Linux system)
-- [ ] End-to-end testing on Linux
-
-**Current Status**:
-The core infrastructure is complete. The eBPF program (pkg/ebpf/bpf/snoop.c) traces `openat` and `execve` syscalls with cgroup filtering. The userspace Go loader uses cilium/ebpf to load the program and read events from a ring buffer. The main limitation is that eBPF development requires Linux, so the code needs to be tested on a Linux system.
 
 **Files Created**:
 - `cmd/snoop/main.go` - Main entry point with signal handling
@@ -331,29 +326,14 @@ The core infrastructure is complete. The eBPF program (pkg/ebpf/bpf/snoop.c) tra
 - `Makefile` - Build automation
 - `.github/workflows/build.yaml` - CI pipeline
 
-**Testing** (requires Linux):
-- Run snoop alongside `alpine` container running `cat /etc/passwd`
-- Verify `/etc/passwd` appears in snoop output
-- Verify snoop's own file accesses do NOT appear (cgroup filtering works)
-
-**Success criteria**:
-- See file access events from target container
-- Filter out events from snoop itself
-- No kernel panics or container crashes
-
-**Technical risks**:
-- BTF (BPF Type Format) availability in container environments → Addressed with CO-RE support
-- Cgroup v1 vs v2 differences → Currently targets cgroup v2
-- Kernel version compatibility (target: 5.4+) → Uses stable tracepoints
-
 ---
 
-### Milestone 2: Core Functionality
+### Milestone 2: Core Functionality ⏳ IN PROGRESS
 
 **Goal**: Complete syscall coverage, deduplication, and JSON output.
 
 **Deliverables**:
-- [ ] All syscalls traced (openat, execve, stat variants, etc.)
+- [x] All syscalls traced (openat, openat2, execve, execveat, statx, newfstatat, faccessat, faccessat2, readlinkat)
 - [ ] Path normalization (resolve `.`, `..`, relative paths)
 - [ ] Configurable path exclusions
 - [ ] In-memory deduplication with efficient data structure

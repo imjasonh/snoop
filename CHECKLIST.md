@@ -131,11 +131,9 @@
   - [x] Files created list
   - [x] Current status description
 
-## What's NOT Done (Expected) ⏳
+## Milestone 2 Progress ⏳
 
-These are intentionally deferred to Milestone 2:
-
-- [ ] Additional syscalls (stat, access, readlink)
+- [x] Additional syscalls (statx, newfstatat, faccessat, faccessat2, readlinkat, openat2, execveat)
 - [ ] Path normalization logic
 - [ ] Deduplication data structures
 - [ ] JSON report output

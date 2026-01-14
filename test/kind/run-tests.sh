@@ -80,7 +80,7 @@ run_test() {
     echo "Deploying test workload to namespace: $test_namespace..."
     if ! kubectl apply -f "$temp_manifest" 2>&1 | tee "$RESULTS_DIR/${test_name}-deploy.log"; then
         echo -e "${RED}❌ FAILED: Deployment failed${NC}"
-        ((FAILED++))
+        FAILED=$((FAILED + 1))
         FAILED_TESTS+=("$test_name: deployment failed")
         return 1
     fi
@@ -96,7 +96,7 @@ run_test() {
         echo ""
         echo "App logs:"
         kubectl logs -l "app=$app_label" -n "$test_namespace" -c app --tail=20 || echo "(no logs)"
-        ((FAILED++))
+        FAILED=$((FAILED + 1))
         FAILED_TESTS+=("$test_name: pod not ready")
         kubectl delete namespace "$test_namespace" --wait=false >/dev/null 2>&1 || true
         return 1
@@ -136,7 +136,7 @@ run_test() {
         echo ""
         echo "Checking if report file exists in pod..."
         kubectl exec -n "$test_namespace" "$POD_NAME" -c snoop -- ls -la /data/ || echo "(ls failed)"
-        ((FAILED++))
+        FAILED=$((FAILED + 1))
         FAILED_TESTS+=("$test_name: report not found")
         kubectl delete namespace "$test_namespace" --wait=false >/dev/null 2>&1 || true
         return 1
@@ -155,7 +155,7 @@ run_test() {
         echo ""
         echo "Report content:"
         cat "$REPORT_FILE" | jq . || cat "$REPORT_FILE"
-        ((FAILED++))
+        FAILED=$((FAILED + 1))
         FAILED_TESTS+=("$test_name: validation failed")
         kubectl delete namespace "$test_namespace" --wait=false >/dev/null 2>&1 || true
         return 1
@@ -165,7 +165,7 @@ run_test() {
     FILE_COUNT=$(jq '.files | length' "$REPORT_FILE")
     if [ "$FILE_COUNT" -lt "$expected_min_files" ]; then
         echo -e "${RED}❌ FAILED: Too few files captured ($FILE_COUNT < $expected_min_files)${NC}"
-        ((FAILED++))
+        FAILED=$((FAILED + 1))
         FAILED_TESTS+=("$test_name: insufficient files")
         kubectl delete namespace "$test_namespace" --wait=false >/dev/null 2>&1 || true
         return 1
@@ -179,7 +179,7 @@ run_test() {
     echo ""
     echo "Sample files captured:"
     (jq -r '.files[] | "     " + .' "$REPORT_FILE" | head -10) || echo "     (none shown)"
-    ((PASSED++))
+    PASSED=$((PASSED + 1))
 
     # Cleanup (async - don't block)
     echo "Cleaning up..."

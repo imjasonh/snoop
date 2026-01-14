@@ -1,10 +1,10 @@
 # Snoop: Production File Access Observer
 
-## 🚧 Current Status: Milestone 2 - Core Functionality In Progress
+## ✅ Current Status: Milestone 2 - Core Functionality Complete
 
 **Last Updated**: 2026-01-14
 
-Milestone 1 complete, now working on Milestone 2:
+Milestone 2 complete:
 - ✅ eBPF program with full syscall coverage (openat, execve, stat, access, readlink variants)
 - ✅ Cgroup-based filtering for targeted container monitoring
 - ✅ Ring buffer event delivery from kernel to userspace
@@ -13,7 +13,10 @@ Milestone 1 complete, now working on Milestone 2:
 - ✅ Path normalization (resolve `.`, `..`, relative paths)
 - ✅ Configurable path exclusions
 - ✅ In-memory deduplication with efficient data structure
-- ⏳ **Next**: Periodic JSON file output, graceful shutdown
+- ✅ Periodic JSON file output (atomic writes)
+- ✅ Graceful shutdown (flush on SIGTERM)
+
+**Next**: Milestone 3 - Production Hardening (metrics, logging, health checks)
 
 See [Milestone 2](#milestone-2-core-functionality) for details.
 
@@ -331,17 +334,17 @@ Volume mounts:
 
 ---
 
-### Milestone 2: Core Functionality ⏳ IN PROGRESS
+### Milestone 2: Core Functionality ✅ COMPLETE
 
 **Goal**: Complete syscall coverage, deduplication, and JSON output.
 
 **Deliverables**:
 - [x] All syscalls traced (openat, openat2, execve, execveat, statx, newfstatat, faccessat, faccessat2, readlinkat)
-- [ ] Path normalization (resolve `.`, `..`, relative paths)
-- [ ] Configurable path exclusions
-- [ ] In-memory deduplication with efficient data structure
-- [ ] Periodic JSON file output (atomic writes)
-- [ ] Graceful shutdown (flush on SIGTERM)
+- [x] Path normalization (resolve `.`, `..`, relative paths)
+- [x] Configurable path exclusions
+- [x] In-memory deduplication with efficient data structure
+- [x] Periodic JSON file output (atomic writes)
+- [x] Graceful shutdown (flush on SIGTERM)
 
 **Testing**:
 - Unit tests for path normalization

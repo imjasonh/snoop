@@ -30,6 +30,7 @@ func main() {
 		containerID    string
 		metricsAddr    string
 		logLevel       string
+		maxUniqueFiles int
 	)
 
 	flag.StringVar(&cgroupPath, "cgroup", "", "Cgroup path to trace (e.g., /system.slice/docker-abc123.scope)")
@@ -40,17 +41,18 @@ func main() {
 	flag.StringVar(&containerID, "container-id", "", "Container ID for report metadata")
 	flag.StringVar(&metricsAddr, "metrics-addr", ":9090", "Address for Prometheus metrics endpoint (empty to disable)")
 	flag.StringVar(&logLevel, "log-level", "info", "Log level (debug, info, warn, error)")
+	flag.IntVar(&maxUniqueFiles, "max-unique-files", 0, "Maximum unique files to track (0 = unbounded)")
 	flag.Parse()
 
 	// Initialize logging context
 	ctx := clog.WithLogger(context.Background(), clog.New(clog.ParseLevel(logLevel)))
 
-	if err := run(ctx, cgroupPath, reportPath, reportInterval, excludePaths, imageRef, containerID, metricsAddr); err != nil {
+	if err := run(ctx, cgroupPath, reportPath, reportInterval, excludePaths, imageRef, containerID, metricsAddr, maxUniqueFiles); err != nil {
 		clog.FromContext(ctx).Fatalf("Fatal error: %v", err)
 	}
 }
 
-func run(ctx context.Context, cgroupPath, reportPath string, reportInterval time.Duration, excludePaths, imageRef, containerID, metricsAddr string) error {
+func run(ctx context.Context, cgroupPath, reportPath string, reportInterval time.Duration, excludePaths, imageRef, containerID, metricsAddr string, maxUniqueFiles int) error {
 	log := clog.FromContext(ctx)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -121,14 +123,15 @@ func run(ctx context.Context, cgroupPath, reportPath string, reportInterval time
 	}
 
 	// Create processor and reporter
-	proc := processor.NewProcessor(ctx, exclusions)
+	proc := processor.NewProcessor(ctx, exclusions, maxUniqueFiles)
 	rep := reporter.NewFileReporter(ctx, reportPath)
 
 	startedAt := time.Now()
 	log.Infof("Writing reports to: %s (interval: %s)", reportPath, reportInterval)
 
-	// Track last seen drops count for computing delta
+	// Track last seen drops and evictions count for computing deltas
 	var lastDrops uint64
+	var lastEvicted uint64
 
 	// Start periodic report writer
 	reportTicker := time.NewTicker(reportInterval)
@@ -152,6 +155,16 @@ func run(ctx context.Context, cgroupPath, reportPath string, reportInterval time
 			lastDrops = drops
 		}
 
+		// Update the evictions counter metric with the delta
+		if stats.EventsEvicted > lastEvicted {
+			delta := stats.EventsEvicted - lastEvicted
+			m.EventsEvicted.Add(float64(delta))
+			if delta > 0 {
+				log.Warnf("Deduplication cache eviction: %d file paths evicted since last report", delta)
+			}
+			lastEvicted = stats.EventsEvicted
+		}
+
 		report := &reporter.Report{
 			ContainerID:   containerID,
 			ImageRef:      imageRef,
@@ -164,8 +177,8 @@ func run(ctx context.Context, cgroupPath, reportPath string, reportInterval time
 			log.Errorf("Error writing report: %v", err)
 			m.ReportWriteErrors.Inc()
 		} else {
-			log.Infof("Report written: %d unique files, %d events processed, %d dropped",
-				stats.UniqueFiles, stats.EventsProcessed, drops)
+			log.Infof("Report written: %d unique files, %d events processed, %d dropped, %d evicted",
+				stats.UniqueFiles, stats.EventsProcessed, drops, stats.EventsEvicted)
 			m.ReportWrites.Inc()
 		}
 		// Update gauge for unique files count

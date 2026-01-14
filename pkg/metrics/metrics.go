@@ -15,6 +15,7 @@ type Metrics struct {
 	EventsExcluded  prometheus.Counter
 	EventsDuplicate prometheus.Counter
 	EventsDropped   prometheus.Counter
+	EventsEvicted   prometheus.Counter
 	UniqueFiles     prometheus.Gauge
 
 	ReportWrites      prometheus.Counter
@@ -48,6 +49,10 @@ func New() *Metrics {
 			Name: "snoop_events_dropped_total",
 			Help: "Total number of events dropped due to ring buffer overflow.",
 		}),
+		EventsEvicted: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "snoop_events_evicted_total",
+			Help: "Total number of file paths evicted from deduplication cache due to memory limits.",
+		}),
 		UniqueFiles: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "snoop_unique_files",
 			Help: "Current number of unique files recorded.",
@@ -70,6 +75,7 @@ func New() *Metrics {
 		m.EventsExcluded,
 		m.EventsDuplicate,
 		m.EventsDropped,
+		m.EventsEvicted,
 		m.UniqueFiles,
 		m.ReportWrites,
 		m.ReportWriteErrors,

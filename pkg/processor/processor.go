@@ -20,7 +20,7 @@ type Event struct {
 // exclusion filtering, and deduplication.
 type Processor struct {
 	ctx      context.Context
-	seen     map[string]struct{}
+	seen     *lruCache
 	seenMu   sync.RWMutex
 	excluded []string
 
@@ -29,12 +29,14 @@ type Processor struct {
 	eventsProcessed uint64
 	eventsExcluded  uint64
 	eventsDuplicate uint64
+	eventsEvicted   uint64
 	mu              sync.Mutex
 }
 
 // NewProcessor creates a new event processor with the given exclusion prefixes.
 // If excludePrefixes is nil, DefaultExclusions() will be used.
-func NewProcessor(ctx context.Context, excludePrefixes []string) *Processor {
+// maxUniqueFiles limits the deduplication cache size (0 = unbounded).
+func NewProcessor(ctx context.Context, excludePrefixes []string, maxUniqueFiles int) *Processor {
 	log := clog.FromContext(ctx)
 	if excludePrefixes == nil {
 		excludePrefixes = DefaultExclusions()
@@ -43,9 +45,14 @@ func NewProcessor(ctx context.Context, excludePrefixes []string) *Processor {
 	for _, prefix := range excludePrefixes {
 		log.Debugf("Excluding paths with prefix: %s", prefix)
 	}
+	if maxUniqueFiles > 0 {
+		log.Infof("Deduplication cache limited to %d unique files", maxUniqueFiles)
+	} else {
+		log.Info("Deduplication cache is unbounded")
+	}
 	return &Processor{
 		ctx:      ctx,
-		seen:     make(map[string]struct{}),
+		seen:     newLRUCache(maxUniqueFiles),
 		excluded: excludePrefixes,
 	}
 }
@@ -87,10 +94,7 @@ func (p *Processor) Process(event *Event) (string, ProcessResult) {
 
 	// Check for duplicates and add if new
 	p.seenMu.Lock()
-	_, exists := p.seen[normalized]
-	if !exists {
-		p.seen[normalized] = struct{}{}
-	}
+	exists := p.seen.add(normalized)
 	p.seenMu.Unlock()
 
 	if exists {
@@ -112,18 +116,14 @@ func (p *Processor) Files() []string {
 	p.seenMu.RLock()
 	defer p.seenMu.RUnlock()
 
-	files := make([]string, 0, len(p.seen))
-	for path := range p.seen {
-		files = append(files, path)
-	}
-	return files
+	return p.seen.keys()
 }
 
 // UniqueFileCount returns the number of unique files seen.
 func (p *Processor) UniqueFileCount() int {
 	p.seenMu.RLock()
 	defer p.seenMu.RUnlock()
-	return len(p.seen)
+	return p.seen.len()
 }
 
 // Stats returns processing statistics.
@@ -132,6 +132,7 @@ type Stats struct {
 	EventsProcessed uint64
 	EventsExcluded  uint64
 	EventsDuplicate uint64
+	EventsEvicted   uint64
 	UniqueFiles     int
 }
 
@@ -141,7 +142,8 @@ func (p *Processor) Stats() Stats {
 	defer p.mu.Unlock()
 
 	p.seenMu.RLock()
-	uniqueFiles := len(p.seen)
+	uniqueFiles := p.seen.len()
+	evicted := p.seen.evictions()
 	p.seenMu.RUnlock()
 
 	return Stats{
@@ -149,6 +151,7 @@ func (p *Processor) Stats() Stats {
 		EventsProcessed: p.eventsProcessed,
 		EventsExcluded:  p.eventsExcluded,
 		EventsDuplicate: p.eventsDuplicate,
+		EventsEvicted:   evicted,
 		UniqueFiles:     uniqueFiles,
 	}
 }
@@ -157,7 +160,7 @@ func (p *Processor) Stats() Stats {
 // This is primarily useful for testing.
 func (p *Processor) Reset() {
 	p.seenMu.Lock()
-	p.seen = make(map[string]struct{})
+	p.seen.reset()
 	p.seenMu.Unlock()
 
 	p.mu.Lock()
@@ -165,5 +168,6 @@ func (p *Processor) Reset() {
 	p.eventsProcessed = 0
 	p.eventsExcluded = 0
 	p.eventsDuplicate = 0
+	p.eventsEvicted = 0
 	p.mu.Unlock()
 }

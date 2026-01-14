@@ -2,6 +2,7 @@ package processor
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"sync"
 	"testing"
@@ -11,7 +12,7 @@ func TestNewProcessor(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("with nil exclusions uses defaults", func(t *testing.T) {
-		p := NewProcessor(ctx, nil)
+		p := NewProcessor(ctx, nil, 0)
 		if len(p.excluded) != len(DefaultExclusions()) {
 			t.Errorf("expected default exclusions, got %v", p.excluded)
 		}
@@ -19,9 +20,16 @@ func TestNewProcessor(t *testing.T) {
 
 	t.Run("with custom exclusions", func(t *testing.T) {
 		exclusions := []string{"/tmp/", "/var/"}
-		p := NewProcessor(ctx, exclusions)
+		p := NewProcessor(ctx, exclusions, 0)
 		if len(p.excluded) != 2 {
 			t.Errorf("expected 2 exclusions, got %d", len(p.excluded))
+		}
+	})
+
+	t.Run("with bounded cache", func(t *testing.T) {
+		p := NewProcessor(ctx, nil, 100)
+		if p.seen.maxSize != 100 {
+			t.Errorf("expected maxSize=100, got %d", p.seen.maxSize)
 		}
 	})
 }
@@ -65,7 +73,7 @@ func TestProcessorProcess(t *testing.T) {
 	}} {
 		t.Run(tt.desc, func(t *testing.T) {
 			ctx := context.Background()
-			p := NewProcessor(ctx, nil)
+			p := NewProcessor(ctx, nil, 0)
 			event := &Event{
 				PID:  1234,
 				Path: tt.path,
@@ -84,7 +92,7 @@ func TestProcessorProcess(t *testing.T) {
 
 func TestProcessorDeduplication(t *testing.T) {
 	ctx := context.Background()
-	p := NewProcessor(ctx, nil)
+	p := NewProcessor(ctx, nil, 0)
 
 	// First access should be new
 	event := &Event{PID: 1234, Path: "/etc/passwd"}
@@ -115,7 +123,7 @@ func TestProcessorDeduplication(t *testing.T) {
 
 func TestProcessorDeduplicationNormalized(t *testing.T) {
 	ctx := context.Background()
-	p := NewProcessor(ctx, nil)
+	p := NewProcessor(ctx, nil, 0)
 
 	// Access with dots
 	event1 := &Event{PID: 1234, Path: "/etc/./passwd"}
@@ -139,7 +147,7 @@ func TestProcessorDeduplicationNormalized(t *testing.T) {
 
 func TestProcessorFiles(t *testing.T) {
 	ctx := context.Background()
-	p := NewProcessor(ctx, nil)
+	p := NewProcessor(ctx, nil, 0)
 
 	paths := []string{"/etc/passwd", "/usr/bin/bash", "/lib/libc.so.6"}
 	for _, path := range paths {
@@ -163,7 +171,7 @@ func TestProcessorFiles(t *testing.T) {
 
 func TestProcessorStats(t *testing.T) {
 	ctx := context.Background()
-	p := NewProcessor(ctx, nil)
+	p := NewProcessor(ctx, nil, 0)
 
 	// Process various events
 	p.Process(&Event{PID: 1234, Path: "/etc/passwd"})       // new
@@ -193,7 +201,7 @@ func TestProcessorStats(t *testing.T) {
 
 func TestProcessorReset(t *testing.T) {
 	ctx := context.Background()
-	p := NewProcessor(ctx, nil)
+	p := NewProcessor(ctx, nil, 0)
 
 	p.Process(&Event{PID: 1234, Path: "/etc/passwd"})
 	p.Process(&Event{PID: 1234, Path: "/etc/hostname"})
@@ -216,7 +224,7 @@ func TestProcessorReset(t *testing.T) {
 
 func TestProcessorConcurrency(t *testing.T) {
 	ctx := context.Background()
-	p := NewProcessor(ctx, nil)
+	p := NewProcessor(ctx, nil, 0)
 	var wg sync.WaitGroup
 
 	// Simulate concurrent access from multiple goroutines
@@ -258,7 +266,7 @@ func TestProcessorConcurrency(t *testing.T) {
 func TestProcessorCustomExclusions(t *testing.T) {
 	ctx := context.Background()
 	// Test with custom exclusions that don't include defaults
-	p := NewProcessor(ctx, []string{"/tmp/", "/custom/"})
+	p := NewProcessor(ctx, []string{"/tmp/", "/custom/"}, 0)
 
 	// Default exclusions should NOT apply
 	_, result := p.Process(&Event{PID: 1234, Path: "/proc/self/status"})
@@ -275,5 +283,114 @@ func TestProcessorCustomExclusions(t *testing.T) {
 	_, result = p.Process(&Event{PID: 1234, Path: "/custom/data"})
 	if result != ResultExcluded {
 		t.Errorf("/custom path: got %v, want ResultExcluded", result)
+	}
+}
+
+func TestProcessorBoundedCache(t *testing.T) {
+	ctx := context.Background()
+	// Create processor with max 3 unique files
+	p := NewProcessor(ctx, []string{}, 3)
+
+	// Add 3 files - should all be new
+	for i := 1; i <= 3; i++ {
+		path := fmt.Sprintf("/file%d", i)
+		_, result := p.Process(&Event{PID: 1234, Path: path})
+		if result != ResultNew {
+			t.Errorf("file %d: got %v, want ResultNew", i, result)
+		}
+	}
+
+	stats := p.Stats()
+	if stats.UniqueFiles != 3 {
+		t.Errorf("unique files = %d, want 3", stats.UniqueFiles)
+	}
+	if stats.EventsEvicted != 0 {
+		t.Errorf("evicted = %d, want 0", stats.EventsEvicted)
+	}
+
+	// Add 4th file - should evict oldest (file1)
+	_, result := p.Process(&Event{PID: 1234, Path: "/file4"})
+	if result != ResultNew {
+		t.Errorf("file4: got %v, want ResultNew", result)
+	}
+
+	stats = p.Stats()
+	if stats.UniqueFiles != 3 {
+		t.Errorf("unique files after eviction = %d, want 3", stats.UniqueFiles)
+	}
+	if stats.EventsEvicted != 1 {
+		t.Errorf("evicted = %d, want 1", stats.EventsEvicted)
+	}
+
+	// file1 should now be treated as new (was evicted)
+	_, result = p.Process(&Event{PID: 1234, Path: "/file1"})
+	if result != ResultNew {
+		t.Errorf("evicted file1: got %v, want ResultNew", result)
+	}
+
+	stats = p.Stats()
+	if stats.EventsEvicted != 2 {
+		t.Errorf("evicted after re-add = %d, want 2", stats.EventsEvicted)
+	}
+}
+
+func TestProcessorBoundedCacheWithHighLoad(t *testing.T) {
+	ctx := context.Background()
+	// Create processor with max 10 unique files
+	p := NewProcessor(ctx, []string{}, 10)
+
+	// Add 100 unique files
+	for i := 0; i < 100; i++ {
+		path := fmt.Sprintf("/file%d", i)
+		p.Process(&Event{PID: 1234, Path: path})
+	}
+
+	stats := p.Stats()
+	// Should only retain 10 files
+	if stats.UniqueFiles != 10 {
+		t.Errorf("unique files = %d, want 10", stats.UniqueFiles)
+	}
+	// Should have evicted 90 files
+	if stats.EventsEvicted != 90 {
+		t.Errorf("evicted = %d, want 90", stats.EventsEvicted)
+	}
+	// 100 events received, all processed
+	if stats.EventsProcessed != 100 {
+		t.Errorf("processed = %d, want 100", stats.EventsProcessed)
+	}
+}
+
+func TestProcessorUnboundedVsBounded(t *testing.T) {
+	ctx := context.Background()
+
+	// Unbounded processor
+	pUnbounded := NewProcessor(ctx, []string{}, 0)
+	// Bounded processor
+	pBounded := NewProcessor(ctx, []string{}, 5)
+
+	// Add 20 unique files to both
+	for i := 0; i < 20; i++ {
+		path := fmt.Sprintf("/file%d", i)
+		pUnbounded.Process(&Event{PID: 1234, Path: path})
+		pBounded.Process(&Event{PID: 1234, Path: path})
+	}
+
+	unboundedStats := pUnbounded.Stats()
+	boundedStats := pBounded.Stats()
+
+	// Unbounded should have all 20 files
+	if unboundedStats.UniqueFiles != 20 {
+		t.Errorf("unbounded unique files = %d, want 20", unboundedStats.UniqueFiles)
+	}
+	if unboundedStats.EventsEvicted != 0 {
+		t.Errorf("unbounded evicted = %d, want 0", unboundedStats.EventsEvicted)
+	}
+
+	// Bounded should have only 5 files
+	if boundedStats.UniqueFiles != 5 {
+		t.Errorf("bounded unique files = %d, want 5", boundedStats.UniqueFiles)
+	}
+	if boundedStats.EventsEvicted != 15 {
+		t.Errorf("bounded evicted = %d, want 15", boundedStats.EventsEvicted)
 	}
 }

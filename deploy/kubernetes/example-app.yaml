@@ -1,0 +1,232 @@
+# This example shows how to add the snoop sidecar to an existing application
+#
+# To use this with your own application:
+# 1. Add the snoop container to your deployment's containers list
+# 2. Add the required volumes (snoop-data, cgroup, debugfs)
+# 3. Add the cgroup-finder init container
+# 4. Ensure your pod has the required security context capabilities
+# 5. Update the image reference and container-id arguments
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: example-app
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nginx-with-snoop
+  namespace: example-app
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-with-snoop
+  namespace: example-app
+  labels:
+    app: nginx
+    instrumented-by: snoop
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+        instrumented-by: snoop
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: nginx-with-snoop
+
+      volumes:
+        - name: snoop-data
+          emptyDir: {}
+        - name: cgroup
+          hostPath:
+            path: /sys/fs/cgroup
+            type: Directory
+        - name: debugfs
+          hostPath:
+            path: /sys/kernel/debug
+            type: Directory
+        - name: nginx-cache
+          emptyDir: {}
+
+      initContainers:
+        - name: cgroup-finder
+          image: busybox:latest
+          command:
+            - sh
+            - -c
+            - |
+              # Determine cgroup path for the pod
+              if [ -f /proc/self/cgroup ]; then
+                CGROUP_PATH=$(cat /proc/self/cgroup | cut -d: -f3)
+                echo "Found cgroup path: $CGROUP_PATH"
+                echo "$CGROUP_PATH" > /snoop-data/cgroup-path
+              else
+                echo "Could not determine cgroup path"
+                exit 1
+              fi
+          volumeMounts:
+            - name: snoop-data
+              mountPath: /snoop-data
+
+      containers:
+        # Main application container (nginx)
+        - name: nginx
+          image: nginx:1.25-alpine
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          volumeMounts:
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: snoop-data
+              mountPath: /data
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+
+        # Snoop sidecar container
+        - name: snoop
+          image: ghcr.io/imjasonh/snoop:latest
+          imagePullPolicy: Always
+
+          securityContext:
+            privileged: false
+            capabilities:
+              add:
+                - SYS_ADMIN
+                - BPF
+                - PERFMON
+            readOnlyRootFilesystem: true
+
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+
+          command:
+            - /usr/local/bin/snoop
+          args:
+            - -cgroup=/sys/fs/cgroup$(cat /data/cgroup-path)
+            - -report=/data/snoop-report.json
+            - -interval=30s
+            - -exclude=/proc/,/sys/,/dev/,/var/cache/nginx
+            - -metrics-addr=:9090
+            - -log-level=info
+            - -max-unique-files=50000
+            - -container-id=$(POD_NAME)
+            - -image=nginx:1.25-alpine
+
+          volumeMounts:
+            - name: snoop-data
+              mountPath: /data
+            - name: cgroup
+              mountPath: /sys/fs/cgroup
+              readOnly: true
+            - name: debugfs
+              mountPath: /sys/kernel/debug
+              readOnly: true
+
+          ports:
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9090
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  namespace: example-app
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+      protocol: TCP
+  selector:
+    app: nginx
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-metrics
+  namespace: example-app
+  labels:
+    app: nginx
+    instrumented-by: snoop
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+  selector:
+    app: nginx
+---
+# Optional: ServiceMonitor for Prometheus Operator
+# Uncomment if you're using Prometheus Operator
+#
+# apiVersion: monitoring.coreos.com/v1
+# kind: ServiceMonitor
+# metadata:
+#   name: nginx-snoop
+#   namespace: example-app
+# spec:
+#   selector:
+#     matchLabels:
+#       instrumented-by: snoop
+#   endpoints:
+#     - port: metrics
+#       interval: 30s
+#       path: /metrics

@@ -1,10 +1,10 @@
 # Snoop: Production File Access Observer
 
-## 🎉 Current Status: Milestone 3 - Production Hardening COMPLETE
+## 🚀 Current Status: Milestone 4 - Kubernetes Integration IN PROGRESS
 
 **Last Updated**: 2026-01-14
 
-Milestone 3 completed:
+Milestone 3 completed (2026-01-14):
 - ✅ Prometheus metrics endpoint (`/metrics` on port 9090)
 - ✅ Structured logging with clog
 - ✅ Ring buffer overflow handling and metrics
@@ -13,9 +13,15 @@ Milestone 3 completed:
 - ✅ Configuration validation
 - ✅ Resource limit recommendations documented (see RESOURCE_LIMITS.md)
 
-**Next Milestone**: Milestone 4 - Kubernetes Integration
+Milestone 4 progress:
+- ✅ Kubernetes deployment manifests (`deploy/kubernetes/deployment.yaml`)
+- ✅ RBAC manifest for required permissions (`deploy/kubernetes/rbac.yaml`)
+- ✅ Example nginx deployment with snoop sidecar (`deploy/kubernetes/example-app.yaml`)
+- ✅ Comprehensive documentation (`deploy/kubernetes/README.md`)
 
-See [Milestone 4](#milestone-4-kubernetes-integration) for next steps.
+**Next Steps**: Continue with Milestone 4 - Helm chart, metadata enrichment, multi-container support
+
+See [Milestone 4](#milestone-4-kubernetes-integration) for details.
 
 ---
 
@@ -394,12 +400,13 @@ Volume mounts:
 **Goal**: Easy deployment in Kubernetes with proper metadata enrichment.
 
 **Deliverables**:
-- [ ] Kubernetes deployment manifests
+- [x] Kubernetes deployment manifests
+- [x] RBAC manifest for required permissions
+- [x] Example with common workloads (nginx)
+- [x] Documentation for Kubernetes deployment
 - [ ] Helm chart with configurable values
 - [ ] Automatic pod/namespace/image metadata via downward API
 - [ ] Support for multi-container pods (trace specific container)
-- [ ] Documentation for RBAC requirements
-- [ ] Example with common workloads (nginx, Python app, Go service)
 
 **Testing**:
 - Deploy in kind cluster

@@ -1,0 +1,214 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: snoop-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: snoop
+  namespace: snoop-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: snoop-config
+  namespace: snoop-system
+data:
+  # Default configuration values
+  # These can be overridden via environment variables in the deployment
+  report-interval: "30s"
+  exclude-paths: "/proc/,/sys/,/dev/"
+  metrics-addr: ":9090"
+  log-level: "info"
+  max-unique-files: "100000"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: snoop-example
+  namespace: snoop-system
+  labels:
+    app: snoop-example
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: snoop-example
+  template:
+    metadata:
+      labels:
+        app: snoop-example
+      annotations:
+        # Prometheus scrape annotations
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: snoop
+
+      # Shared volume for report output
+      volumes:
+        - name: snoop-data
+          emptyDir: {}
+        - name: cgroup
+          hostPath:
+            path: /sys/fs/cgroup
+            type: Directory
+        - name: debugfs
+          hostPath:
+            path: /sys/kernel/debug
+            type: Directory
+
+      # Init container to get target container's cgroup path
+      # This runs before the main containers start
+      initContainers:
+        - name: cgroup-finder
+          image: busybox:latest
+          command:
+            - sh
+            - -c
+            - |
+              # Find the cgroup path for this pod
+              # We'll use the pod's cgroup as the target
+              # In a real deployment, you'd want to identify the specific
+              # container's cgroup within the pod
+
+              # For cgroup v2 (most modern systems)
+              if [ -f /proc/self/cgroup ]; then
+                CGROUP_PATH=$(cat /proc/self/cgroup | cut -d: -f3)
+                echo "Found cgroup path: $CGROUP_PATH"
+                echo "$CGROUP_PATH" > /snoop-data/cgroup-path
+              else
+                echo "Could not determine cgroup path"
+                exit 1
+              fi
+          volumeMounts:
+            - name: snoop-data
+              mountPath: /snoop-data
+
+      containers:
+        # Application container
+        - name: app
+          image: alpine:latest
+          command:
+            - sh
+            - -c
+            - |
+              echo 'Example application starting...';
+              while true; do
+                # Simulate file access patterns
+                cat /etc/passwd > /dev/null;
+                ls /usr/bin > /dev/null;
+                cat /etc/hosts > /dev/null;
+                sleep 5;
+              done
+          volumeMounts:
+            - name: snoop-data
+              mountPath: /data
+              readOnly: true
+
+        # Snoop sidecar
+        - name: snoop
+          image: ghcr.io/imjasonh/snoop:latest
+          imagePullPolicy: Always
+
+          # Required for eBPF
+          securityContext:
+            privileged: false
+            capabilities:
+              add:
+                - SYS_ADMIN    # Required for bpf() syscall
+                - BPF          # Explicit BPF capability (kernel 5.8+)
+                - PERFMON      # For perf events (kernel 5.8+)
+            readOnlyRootFilesystem: true
+
+          # Environment variables from ConfigMap and Downward API
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+
+          # Command with arguments
+          command:
+            - /usr/local/bin/snoop
+          args:
+            - -cgroup=/sys/fs/cgroup$(cat /data/cgroup-path)
+            - -report=/data/snoop-report.json
+            - -interval=30s
+            - -exclude=/proc/,/sys/,/dev/
+            - -metrics-addr=:9090
+            - -log-level=info
+            - -max-unique-files=100000
+            - -container-id=$(POD_NAME)
+
+          # Volume mounts
+          volumeMounts:
+            - name: snoop-data
+              mountPath: /data
+            - name: cgroup
+              mountPath: /sys/fs/cgroup
+              readOnly: true
+            - name: debugfs
+              mountPath: /sys/kernel/debug
+              readOnly: true
+
+          # Ports
+          ports:
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+
+          # Resource limits
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+
+          # Health checks
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9090
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: snoop-metrics
+  namespace: snoop-system
+  labels:
+    app: snoop-example
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+  selector:
+    app: snoop-example

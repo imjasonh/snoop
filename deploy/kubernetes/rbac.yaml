@@ -1,0 +1,54 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: snoop
+rules:
+  # Allow reading pod information for metadata enrichment
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+
+  # Allow reading node information (for cgroup discovery)
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: snoop
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: snoop
+subjects:
+  - kind: ServiceAccount
+    name: snoop
+    namespace: snoop-system
+---
+# Note: If you want to restrict snoop to a single namespace,
+# use a Role and RoleBinding instead:
+#
+# apiVersion: rbac.authorization.k8s.io/v1
+# kind: Role
+# metadata:
+#   name: snoop
+#   namespace: snoop-system
+# rules:
+#   - apiGroups: [""]
+#     resources: ["pods"]
+#     verbs: ["get", "list"]
+# ---
+# apiVersion: rbac.authorization.k8s.io/v1
+# kind: RoleBinding
+# metadata:
+#   name: snoop
+#   namespace: snoop-system
+# roleRef:
+#   apiGroup: rbac.authorization.k8s.io
+#   kind: Role
+#   name: snoop
+# subjects:
+#   - kind: ServiceAccount
+#     name: snoop
+#     namespace: snoop-system

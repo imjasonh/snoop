@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
+
+	"github.com/chainguard-dev/clog"
 )
 
 // Report represents the file access report for a container.
@@ -43,17 +45,25 @@ type Reporter interface {
 
 // FileReporter writes reports to a JSON file using atomic writes.
 type FileReporter struct {
+	ctx  context.Context
 	path string
 }
 
 // NewFileReporter creates a reporter that writes to the given file path.
 // The file is written atomically using a temp file + rename.
-func NewFileReporter(path string) *FileReporter {
-	return &FileReporter{path: path}
+func NewFileReporter(ctx context.Context, path string) *FileReporter {
+	log := clog.FromContext(ctx)
+	log.Infof("Initialized file reporter (path: %s)", path)
+	return &FileReporter{
+		ctx:  ctx,
+		path: path,
+	}
 }
 
 // Update writes the report to the file atomically.
 func (r *FileReporter) Update(ctx context.Context, report *Report) error {
+	log := clog.FromContext(ctx)
+
 	// Sort files for consistent output
 	sortedFiles := make([]string, len(report.Files))
 	copy(sortedFiles, report.Files)
@@ -69,6 +79,8 @@ func (r *FileReporter) Update(ctx context.Context, report *Report) error {
 		return fmt.Errorf("marshaling report: %w", err)
 	}
 
+	log.Debugf("Marshaled report: %d bytes, %d files", len(data), len(sortedFiles))
+
 	// Write atomically: write to temp file, then rename
 	dir := filepath.Dir(r.path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -80,6 +92,8 @@ func (r *FileReporter) Update(ctx context.Context, report *Report) error {
 		return fmt.Errorf("creating temp file: %w", err)
 	}
 	tmpPath := tmpFile.Name()
+
+	log.Debugf("Writing report to temporary file: %s", tmpPath)
 
 	// Clean up temp file on error
 	defer func() {
@@ -103,6 +117,7 @@ func (r *FileReporter) Update(ctx context.Context, report *Report) error {
 	}
 
 	tmpPath = "" // Prevent cleanup since rename succeeded
+	log.Debug("Report written successfully")
 	return nil
 }
 

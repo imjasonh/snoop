@@ -1,14 +1,17 @@
 package processor
 
 import (
+	"context"
 	"sort"
 	"sync"
 	"testing"
 )
 
 func TestNewProcessor(t *testing.T) {
+	ctx := context.Background()
+
 	t.Run("with nil exclusions uses defaults", func(t *testing.T) {
-		p := NewProcessor(nil)
+		p := NewProcessor(ctx, nil)
 		if len(p.excluded) != len(DefaultExclusions()) {
 			t.Errorf("expected default exclusions, got %v", p.excluded)
 		}
@@ -16,7 +19,7 @@ func TestNewProcessor(t *testing.T) {
 
 	t.Run("with custom exclusions", func(t *testing.T) {
 		exclusions := []string{"/tmp/", "/var/"}
-		p := NewProcessor(exclusions)
+		p := NewProcessor(ctx, exclusions)
 		if len(p.excluded) != 2 {
 			t.Errorf("expected 2 exclusions, got %d", len(p.excluded))
 		}
@@ -61,7 +64,8 @@ func TestProcessorProcess(t *testing.T) {
 		wantResult: ResultEmpty,
 	}} {
 		t.Run(tt.desc, func(t *testing.T) {
-			p := NewProcessor(nil)
+			ctx := context.Background()
+			p := NewProcessor(ctx, nil)
 			event := &Event{
 				PID:  1234,
 				Path: tt.path,
@@ -79,7 +83,8 @@ func TestProcessorProcess(t *testing.T) {
 }
 
 func TestProcessorDeduplication(t *testing.T) {
-	p := NewProcessor(nil)
+	ctx := context.Background()
+	p := NewProcessor(ctx, nil)
 
 	// First access should be new
 	event := &Event{PID: 1234, Path: "/etc/passwd"}
@@ -109,7 +114,8 @@ func TestProcessorDeduplication(t *testing.T) {
 }
 
 func TestProcessorDeduplicationNormalized(t *testing.T) {
-	p := NewProcessor(nil)
+	ctx := context.Background()
+	p := NewProcessor(ctx, nil)
 
 	// Access with dots
 	event1 := &Event{PID: 1234, Path: "/etc/./passwd"}
@@ -132,7 +138,8 @@ func TestProcessorDeduplicationNormalized(t *testing.T) {
 }
 
 func TestProcessorFiles(t *testing.T) {
-	p := NewProcessor(nil)
+	ctx := context.Background()
+	p := NewProcessor(ctx, nil)
 
 	paths := []string{"/etc/passwd", "/usr/bin/bash", "/lib/libc.so.6"}
 	for _, path := range paths {
@@ -155,7 +162,8 @@ func TestProcessorFiles(t *testing.T) {
 }
 
 func TestProcessorStats(t *testing.T) {
-	p := NewProcessor(nil)
+	ctx := context.Background()
+	p := NewProcessor(ctx, nil)
 
 	// Process various events
 	p.Process(&Event{PID: 1234, Path: "/etc/passwd"})       // new
@@ -184,7 +192,8 @@ func TestProcessorStats(t *testing.T) {
 }
 
 func TestProcessorReset(t *testing.T) {
-	p := NewProcessor(nil)
+	ctx := context.Background()
+	p := NewProcessor(ctx, nil)
 
 	p.Process(&Event{PID: 1234, Path: "/etc/passwd"})
 	p.Process(&Event{PID: 1234, Path: "/etc/hostname"})
@@ -206,7 +215,8 @@ func TestProcessorReset(t *testing.T) {
 }
 
 func TestProcessorConcurrency(t *testing.T) {
-	p := NewProcessor(nil)
+	ctx := context.Background()
+	p := NewProcessor(ctx, nil)
 	var wg sync.WaitGroup
 
 	// Simulate concurrent access from multiple goroutines
@@ -246,8 +256,9 @@ func TestProcessorConcurrency(t *testing.T) {
 }
 
 func TestProcessorCustomExclusions(t *testing.T) {
+	ctx := context.Background()
 	// Test with custom exclusions that don't include defaults
-	p := NewProcessor([]string{"/tmp/", "/custom/"})
+	p := NewProcessor(ctx, []string{"/tmp/", "/custom/"})
 
 	// Default exclusions should NOT apply
 	_, result := p.Process(&Event{PID: 1234, Path: "/proc/self/status"})

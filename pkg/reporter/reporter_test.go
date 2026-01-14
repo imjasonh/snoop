@@ -10,10 +10,11 @@ import (
 )
 
 func TestFileReporterUpdate(t *testing.T) {
+	ctx := context.Background()
 	tmpDir := t.TempDir()
 	reportPath := filepath.Join(tmpDir, "report.json")
 
-	r := NewFileReporter(reportPath)
+	r := NewFileReporter(ctx, reportPath)
 
 	report := &Report{
 		ContainerID: "abc123",
@@ -53,10 +54,11 @@ func TestFileReporterUpdate(t *testing.T) {
 }
 
 func TestFileReporterSortsFiles(t *testing.T) {
+	ctx := context.Background()
 	tmpDir := t.TempDir()
 	reportPath := filepath.Join(tmpDir, "report.json")
 
-	r := NewFileReporter(reportPath)
+	r := NewFileReporter(ctx, reportPath)
 
 	// Files in unsorted order
 	report := &Report{
@@ -88,11 +90,12 @@ func TestFileReporterSortsFiles(t *testing.T) {
 }
 
 func TestFileReporterCreatesDirectory(t *testing.T) {
+	ctx := context.Background()
 	tmpDir := t.TempDir()
 	// Nested path that doesn't exist
 	reportPath := filepath.Join(tmpDir, "nested", "dir", "report.json")
 
-	r := NewFileReporter(reportPath)
+	r := NewFileReporter(ctx, reportPath)
 
 	report := &Report{
 		StartedAt: time.Now(),
@@ -109,10 +112,11 @@ func TestFileReporterCreatesDirectory(t *testing.T) {
 }
 
 func TestFileReporterAtomicWrite(t *testing.T) {
+	ctx := context.Background()
 	tmpDir := t.TempDir()
 	reportPath := filepath.Join(tmpDir, "report.json")
 
-	r := NewFileReporter(reportPath)
+	r := NewFileReporter(ctx, reportPath)
 
 	// Write initial report
 	report := &Report{
@@ -158,10 +162,11 @@ func TestFileReporterAtomicWrite(t *testing.T) {
 }
 
 func TestFileReporterSetsLastUpdatedAt(t *testing.T) {
+	ctx := context.Background()
 	tmpDir := t.TempDir()
 	reportPath := filepath.Join(tmpDir, "report.json")
 
-	r := NewFileReporter(reportPath)
+	r := NewFileReporter(ctx, reportPath)
 
 	before := time.Now()
 	report := &Report{
@@ -191,14 +196,16 @@ func TestFileReporterSetsLastUpdatedAt(t *testing.T) {
 }
 
 func TestFileReporterPath(t *testing.T) {
-	r := NewFileReporter("/data/report.json")
+	ctx := context.Background()
+	r := NewFileReporter(ctx, "/data/report.json")
 	if r.Path() != "/data/report.json" {
 		t.Errorf("Path() = %q, want %q", r.Path(), "/data/report.json")
 	}
 }
 
 func TestFileReporterClose(t *testing.T) {
-	r := NewFileReporter("/tmp/report.json")
+	ctx := context.Background()
+	r := NewFileReporter(ctx, "/tmp/report.json")
 	if err := r.Close(); err != nil {
 		t.Errorf("Close() returned error: %v", err)
 	}

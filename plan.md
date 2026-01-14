@@ -6,8 +6,9 @@
 
 Milestone 3 progress:
 - ✅ Prometheus metrics endpoint (`/metrics` on port 9090)
+- ✅ Structured logging with clog
 
-**Next**: Structured logging with clog
+**Next**: Ring buffer overflow handling and metrics
 
 See [Milestone 3](#milestone-3-production-hardening) for remaining tasks.
 
@@ -360,7 +361,7 @@ Volume mounts:
 
 **Deliverables**:
 - [x] Prometheus metrics endpoint
-- [ ] Structured logging with levels (clog)
+- [x] Structured logging with levels (clog)
 - [ ] Ring buffer overflow handling and metrics
 - [ ] Memory-bounded deduplication (LRU or bloom filter for extreme cases)
 - [ ] Health check endpoint

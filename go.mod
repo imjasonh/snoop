@@ -3,6 +3,7 @@ module github.com/imjasonh/snoop
 go 1.25.5
 
 require (
+	github.com/chainguard-dev/clog v1.8.0
 	github.com/cilium/ebpf v0.20.0
 	github.com/prometheus/client_golang v1.23.2
 )

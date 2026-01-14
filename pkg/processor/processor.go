@@ -1,7 +1,10 @@
 package processor
 
 import (
+	"context"
 	"sync"
+
+	"github.com/chainguard-dev/clog"
 )
 
 // Event represents a file access event from the eBPF program.
@@ -16,6 +19,7 @@ type Event struct {
 // Processor handles event processing including path normalization,
 // exclusion filtering, and deduplication.
 type Processor struct {
+	ctx      context.Context
 	seen     map[string]struct{}
 	seenMu   sync.RWMutex
 	excluded []string
@@ -30,11 +34,17 @@ type Processor struct {
 
 // NewProcessor creates a new event processor with the given exclusion prefixes.
 // If excludePrefixes is nil, DefaultExclusions() will be used.
-func NewProcessor(excludePrefixes []string) *Processor {
+func NewProcessor(ctx context.Context, excludePrefixes []string) *Processor {
+	log := clog.FromContext(ctx)
 	if excludePrefixes == nil {
 		excludePrefixes = DefaultExclusions()
 	}
+	log.Infof("Initialized processor with %d exclusion prefixes", len(excludePrefixes))
+	for _, prefix := range excludePrefixes {
+		log.Debugf("Excluding paths with prefix: %s", prefix)
+	}
 	return &Processor{
+		ctx:      ctx,
 		seen:     make(map[string]struct{}),
 		excluded: excludePrefixes,
 	}

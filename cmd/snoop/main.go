@@ -6,7 +6,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -30,6 +29,7 @@ func main() {
 		imageRef       string
 		containerID    string
 		metricsAddr    string
+		logLevel       string
 	)
 
 	flag.StringVar(&cgroupPath, "cgroup", "", "Cgroup path to trace (e.g., /system.slice/docker-abc123.scope)")
@@ -39,15 +39,20 @@ func main() {
 	flag.StringVar(&imageRef, "image", "", "Image reference for report metadata")
 	flag.StringVar(&containerID, "container-id", "", "Container ID for report metadata")
 	flag.StringVar(&metricsAddr, "metrics-addr", ":9090", "Address for Prometheus metrics endpoint (empty to disable)")
+	flag.StringVar(&logLevel, "log-level", "info", "Log level (debug, info, warn, error)")
 	flag.Parse()
 
-	if err := run(cgroupPath, reportPath, reportInterval, excludePaths, imageRef, containerID, metricsAddr); err != nil {
-		log.Fatalf("Error: %v", err)
+	// Initialize logging context
+	ctx := clog.WithLogger(context.Background(), clog.New(clog.ParseLevel(logLevel)))
+
+	if err := run(ctx, cgroupPath, reportPath, reportInterval, excludePaths, imageRef, containerID, metricsAddr); err != nil {
+		clog.FromContext(ctx).Fatalf("Fatal error: %v", err)
 	}
 }
 
-func run(cgroupPath, reportPath string, reportInterval time.Duration, excludePaths, imageRef, containerID, metricsAddr string) error {
-	ctx, cancel := context.WithCancel(context.Background())
+func run(ctx context.Context, cgroupPath, reportPath string, reportInterval time.Duration, excludePaths, imageRef, containerID, metricsAddr string) error {
+	log := clog.FromContext(ctx)
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	// Handle signals for graceful shutdown
@@ -55,7 +60,7 @@ func run(cgroupPath, reportPath string, reportInterval time.Duration, excludePat
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sigCh
-		log.Println("Received signal, shutting down...")
+		log.Info("Received shutdown signal")
 		cancel()
 	}()
 
@@ -71,9 +76,9 @@ func run(cgroupPath, reportPath string, reportInterval time.Duration, excludePat
 			Handler: mux,
 		}
 		go func() {
-			log.Printf("Starting metrics server on %s", metricsAddr)
+			log.Infof("Starting metrics server on %s", metricsAddr)
 			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				log.Printf("Metrics server error: %v", err)
+				log.Errorf("Metrics server error: %v", err)
 			}
 		}()
 		defer func() {
@@ -84,19 +89,19 @@ func run(cgroupPath, reportPath string, reportInterval time.Duration, excludePat
 	}
 
 	// Create and load the eBPF probe
-	log.Println("Loading eBPF program...")
-	probe, err := ebpf.NewProbe()
+	log.Info("Loading eBPF program")
+	probe, err := ebpf.NewProbe(ctx)
 	if err != nil {
 		return fmt.Errorf("creating probe: %w", err)
 	}
 	defer probe.Close()
 
-	log.Println("eBPF program loaded successfully")
+	log.Info("eBPF program loaded successfully")
 
 	// Add cgroup to trace
 	if cgroupPath == "" {
-		log.Println("No cgroup specified. Use -cgroup flag to specify a cgroup to trace.")
-		log.Println("Example: -cgroup /system.slice/docker-abc123.scope")
+		log.Error("No cgroup specified. Use -cgroup flag to specify a cgroup to trace.")
+		log.Error("Example: -cgroup /system.slice/docker-abc123.scope")
 		return fmt.Errorf("no cgroup specified")
 	}
 
@@ -104,7 +109,7 @@ func run(cgroupPath, reportPath string, reportInterval time.Duration, excludePat
 	if err != nil {
 		return fmt.Errorf("getting cgroup ID: %w", err)
 	}
-	log.Printf("Tracing cgroup: %s (ID: %d)", cgroupPath, cgroupID)
+	log.Infof("Tracing cgroup: %s (ID: %d)", cgroupPath, cgroupID)
 	if err := probe.AddTracedCgroup(cgroupID); err != nil {
 		return fmt.Errorf("adding traced cgroup: %w", err)
 	}
@@ -116,11 +121,11 @@ func run(cgroupPath, reportPath string, reportInterval time.Duration, excludePat
 	}
 
 	// Create processor and reporter
-	proc := processor.NewProcessor(exclusions)
-	rep := reporter.NewFileReporter(reportPath)
+	proc := processor.NewProcessor(ctx, exclusions)
+	rep := reporter.NewFileReporter(ctx, reportPath)
 
 	startedAt := time.Now()
-	log.Printf("Writing reports to: %s (interval: %s)", reportPath, reportInterval)
+	log.Infof("Writing reports to: %s (interval: %s)", reportPath, reportInterval)
 
 	// Start periodic report writer
 	reportTicker := time.NewTicker(reportInterval)
@@ -137,10 +142,10 @@ func run(cgroupPath, reportPath string, reportInterval time.Duration, excludePat
 			DroppedEvents: 0, // TODO: track ring buffer drops
 		}
 		if err := rep.Update(ctx, report); err != nil {
-			log.Printf("Error writing report: %v", err)
+			log.Errorf("Error writing report: %v", err)
 			m.ReportWriteErrors.Inc()
 		} else {
-			log.Printf("Report written: %d unique files, %d events processed",
+			log.Infof("Report written: %d unique files, %d events processed",
 				stats.UniqueFiles, stats.EventsProcessed)
 			m.ReportWrites.Inc()
 		}
@@ -149,12 +154,12 @@ func run(cgroupPath, reportPath string, reportInterval time.Duration, excludePat
 	}
 
 	// Read and process events
-	log.Println("Waiting for events (press Ctrl+C to exit)...")
+	log.Info("Waiting for events (press Ctrl+C to exit)")
 	for {
 		select {
 		case <-ctx.Done():
 			// Graceful shutdown: write final report
-			log.Println("Writing final report...")
+			log.Info("Writing final report")
 			writeReport()
 			return nil
 
@@ -166,11 +171,11 @@ func run(cgroupPath, reportPath string, reportInterval time.Duration, excludePat
 			if err != nil {
 				if ctx.Err() != nil {
 					// Context cancelled, write final report
-					log.Println("Writing final report...")
+					log.Info("Writing final report")
 					writeReport()
 					return nil
 				}
-				log.Printf("Error reading event: %v", err)
+				log.Errorf("Error reading event: %v", err)
 				continue
 			}
 
@@ -189,7 +194,7 @@ func run(cgroupPath, reportPath string, reportInterval time.Duration, excludePat
 			switch result {
 			case processor.ResultNew:
 				m.EventsProcessed.Inc()
-				log.Printf("[NEW] %s", path)
+				log.Debugf("New file: %s", path)
 			case processor.ResultDuplicate:
 				m.EventsDuplicate.Inc()
 			case processor.ResultExcluded:

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/chainguard-dev/clog"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/imjasonh/snoop/pkg/ebpf/bpf"
@@ -29,7 +30,9 @@ type Probe struct {
 }
 
 // NewProbe creates and loads the eBPF program
-func NewProbe() (*Probe, error) {
+func NewProbe(ctx context.Context) (*Probe, error) {
+	log := clog.FromContext(ctx)
+
 	// Load the eBPF program
 	objs := &bpf.SnoopObjects{}
 	if err := bpf.LoadSnoopObjects(objs, nil); err != nil {
@@ -41,7 +44,7 @@ func NewProbe() (*Probe, error) {
 	}
 
 	// Attach to tracepoints
-	if err := p.attachTracepoints(); err != nil {
+	if err := p.attachTracepoints(ctx); err != nil {
 		p.Close()
 		return nil, fmt.Errorf("attaching tracepoints: %w", err)
 	}
@@ -54,11 +57,15 @@ func NewProbe() (*Probe, error) {
 	}
 	p.reader = rd
 
+	log.Debug("eBPF ring buffer reader created")
 	return p, nil
 }
 
 // attachTracepoints attaches the eBPF programs to syscall tracepoints
-func (p *Probe) attachTracepoints() error {
+func (p *Probe) attachTracepoints(ctx context.Context) error {
+	log := clog.FromContext(ctx)
+	attachedCount := 0
+
 	// Required tracepoints (must exist on all supported kernels)
 	// Attach openat tracepoint
 	l, err := link.Tracepoint("syscalls", "sys_enter_openat", p.objs.TraceOpenat, nil)
@@ -66,6 +73,7 @@ func (p *Probe) attachTracepoints() error {
 		return fmt.Errorf("attaching openat tracepoint: %w", err)
 	}
 	p.links = append(p.links, l)
+	attachedCount++
 
 	// Attach execve tracepoint
 	l, err = link.Tracepoint("syscalls", "sys_enter_execve", p.objs.TraceExecve, nil)
@@ -73,6 +81,7 @@ func (p *Probe) attachTracepoints() error {
 		return fmt.Errorf("attaching execve tracepoint: %w", err)
 	}
 	p.links = append(p.links, l)
+	attachedCount++
 
 	// Attach newfstatat tracepoint (fstatat/stat)
 	l, err = link.Tracepoint("syscalls", "sys_enter_newfstatat", p.objs.TraceNewfstatat, nil)
@@ -80,6 +89,7 @@ func (p *Probe) attachTracepoints() error {
 		return fmt.Errorf("attaching newfstatat tracepoint: %w", err)
 	}
 	p.links = append(p.links, l)
+	attachedCount++
 
 	// Attach faccessat tracepoint (access)
 	l, err = link.Tracepoint("syscalls", "sys_enter_faccessat", p.objs.TraceFaccessat, nil)
@@ -87,6 +97,7 @@ func (p *Probe) attachTracepoints() error {
 		return fmt.Errorf("attaching faccessat tracepoint: %w", err)
 	}
 	p.links = append(p.links, l)
+	attachedCount++
 
 	// Attach readlinkat tracepoint (readlink)
 	l, err = link.Tracepoint("syscalls", "sys_enter_readlinkat", p.objs.TraceReadlinkat, nil)
@@ -94,28 +105,46 @@ func (p *Probe) attachTracepoints() error {
 		return fmt.Errorf("attaching readlinkat tracepoint: %w", err)
 	}
 	p.links = append(p.links, l)
+	attachedCount++
 
 	// Optional tracepoints (may not exist on older kernels)
 	// execveat - exec with dirfd
 	if l, err = link.Tracepoint("syscalls", "sys_enter_execveat", p.objs.TraceExecveat, nil); err == nil {
 		p.links = append(p.links, l)
+		attachedCount++
+		log.Debug("Attached to execveat tracepoint")
+	} else {
+		log.Debug("Skipping execveat tracepoint (not available)")
 	}
 
 	// openat2 - kernel 5.6+
 	if l, err = link.Tracepoint("syscalls", "sys_enter_openat2", p.objs.TraceOpenat2, nil); err == nil {
 		p.links = append(p.links, l)
+		attachedCount++
+		log.Debug("Attached to openat2 tracepoint")
+	} else {
+		log.Debug("Skipping openat2 tracepoint (not available)")
 	}
 
 	// statx - kernel 4.11+
 	if l, err = link.Tracepoint("syscalls", "sys_enter_statx", p.objs.TraceStatx, nil); err == nil {
 		p.links = append(p.links, l)
+		attachedCount++
+		log.Debug("Attached to statx tracepoint")
+	} else {
+		log.Debug("Skipping statx tracepoint (not available)")
 	}
 
 	// faccessat2 - kernel 5.8+
 	if l, err = link.Tracepoint("syscalls", "sys_enter_faccessat2", p.objs.TraceFaccessat2, nil); err == nil {
 		p.links = append(p.links, l)
+		attachedCount++
+		log.Debug("Attached to faccessat2 tracepoint")
+	} else {
+		log.Debug("Skipping faccessat2 tracepoint (not available)")
 	}
 
+	log.Infof("Attached to %d syscall tracepoints", attachedCount)
 	return nil
 }
 

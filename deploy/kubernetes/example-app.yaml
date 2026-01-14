@@ -3,9 +3,10 @@
 # To use this with your own application:
 # 1. Add the snoop container to your deployment's containers list
 # 2. Add the required volumes (snoop-data, cgroup, debugfs)
-# 3. Add the cgroup-finder init container
-# 4. Ensure your pod has the required security context capabilities
-# 5. Update the image reference and container-id arguments
+# 3. Ensure your pod has the required security context capabilities
+# 4. Update the image reference and container-id arguments
+#
+# Note: The -cgroup flag is optional. Snoop will auto-discover its cgroup path.
 
 apiVersion: v1
 kind: Namespace
@@ -56,26 +57,6 @@ spec:
             type: Directory
         - name: nginx-cache
           emptyDir: {}
-
-      initContainers:
-        - name: cgroup-finder
-          image: busybox:latest
-          command:
-            - sh
-            - -c
-            - |
-              # Determine cgroup path for the pod
-              if [ -f /proc/self/cgroup ]; then
-                CGROUP_PATH=$(cat /proc/self/cgroup | cut -d: -f3)
-                echo "Found cgroup path: $CGROUP_PATH"
-                echo "$CGROUP_PATH" > /snoop-data/cgroup-path
-              else
-                echo "Could not determine cgroup path"
-                exit 1
-              fi
-          volumeMounts:
-            - name: snoop-data
-              mountPath: /snoop-data
 
       containers:
         # Main application container (nginx)
@@ -130,7 +111,7 @@ spec:
           command:
             - /usr/local/bin/snoop
           args:
-            - -cgroup=/sys/fs/cgroup$(cat /data/cgroup-path)
+            # Note: -cgroup is omitted - snoop will auto-discover its own cgroup path
             - -report=/data/snoop-report.json
             - -interval=30s
             - -exclude=/proc/,/sys/,/dev/,/var/cache/nginx

@@ -56,6 +56,8 @@ pkg/reporter/              JSON file output with atomic writes
 
 **Cgroup filtering**: The eBPF program only emits events for cgroups added to the `traced_cgroups` map. This allows targeting specific containers.
 
+**Cgroup auto-discovery**: By default, snoop automatically discovers its own cgroup path from `/proc/self/cgroup` on startup. The `-cgroup` flag is optional and only needed if you want to trace a different cgroup. This eliminates the need for initContainers in Kubernetes deployments.
+
 ## Key Design Decisions
 
 - Traces syscall entry (not exit) because we care about what apps *tried* to access, not success/failure

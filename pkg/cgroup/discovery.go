@@ -37,26 +37,33 @@ func (d *SelfExcludingDiscovery) Discover(ctx context.Context) ([]uint64, error)
 	return []uint64{}, nil
 }
 
-// GetSelfCgroupID returns the cgroup ID of the current process
-func GetSelfCgroupID() (uint64, error) {
+// GetSelfCgroupPath returns the cgroup path of the current process
+// relative to /sys/fs/cgroup (e.g., "/system.slice/docker-abc123.scope")
+func GetSelfCgroupPath() (string, error) {
 	// Read /proc/self/cgroup to get cgroup path
 	data, err := os.ReadFile("/proc/self/cgroup")
 	if err != nil {
-		return 0, fmt.Errorf("reading /proc/self/cgroup: %w", err)
+		return "", fmt.Errorf("reading /proc/self/cgroup: %w", err)
 	}
 
 	// Parse cgroup v2 format: 0::/path/to/cgroup
 	lines := strings.Split(string(data), "\n")
-	var cgroupPath string
 	for _, line := range lines {
 		if strings.HasPrefix(line, "0::") {
-			cgroupPath = strings.TrimPrefix(line, "0::")
-			break
+			cgroupPath := strings.TrimPrefix(line, "0::")
+			return cgroupPath, nil
 		}
 	}
 
-	if cgroupPath == "" {
-		return 0, fmt.Errorf("cgroup v2 not found in /proc/self/cgroup")
+	return "", fmt.Errorf("cgroup v2 not found in /proc/self/cgroup")
+}
+
+// GetSelfCgroupID returns the cgroup ID of the current process
+func GetSelfCgroupID() (uint64, error) {
+	// Get the cgroup path
+	cgroupPath, err := GetSelfCgroupPath()
+	if err != nil {
+		return 0, err
 	}
 
 	// Read the cgroup.id file to get the cgroup ID

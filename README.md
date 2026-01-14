@@ -142,10 +142,11 @@ To add snoop as a sidecar to an existing Kubernetes deployment:
 
 1. **Add the snoop container** to your pod spec
 2. **Add required volumes** (cgroup, debugfs, shared data volume)
-3. **Add an init container** to discover the cgroup path
-4. **Apply RBAC** if not already present
+3. **Apply RBAC** if not already present
 
 Complete example in [deploy/kubernetes/example-app.yaml](deploy/kubernetes/example-app.yaml).
+
+**Note**: Snoop automatically discovers its cgroup path on startup. The `-cgroup` flag is optional and only needed if you want to trace a different cgroup than snoop's own.
 
 ### Configuration
 
@@ -153,8 +154,7 @@ Key command-line arguments:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-cgroup` | (required) | Cgroup path to trace (single container) |
-| `-cgroups` | (required) | Comma-separated cgroup paths (multi-container) |
+| `-cgroup` | (auto-discovered) | Cgroup path to trace (optional, auto-discovers own cgroup if omitted) |
 | `-report` | `/data/snoop-report.json` | Path to write JSON reports |
 | `-interval` | `30s` | Interval between report writes |
 | `-exclude` | `/proc/,/sys/,/dev/` | Path prefixes to exclude |

@@ -25,7 +25,6 @@ import (
 func main() {
 	var (
 		cgroupPath     string
-		cgroupPaths    string
 		reportPath     string
 		reportInterval time.Duration
 		excludePaths   string
@@ -38,8 +37,7 @@ func main() {
 		maxUniqueFiles int
 	)
 
-	flag.StringVar(&cgroupPath, "cgroup", "", "Cgroup path to trace (e.g., /system.slice/docker-abc123.scope)")
-	flag.StringVar(&cgroupPaths, "cgroups", "", "Comma-separated list of cgroup paths to trace (for multi-container pods)")
+	flag.StringVar(&cgroupPath, "cgroup", "", "Cgroup path to trace (optional, auto-discovers if omitted)")
 	flag.StringVar(&reportPath, "report", "/data/snoop-report.json", "Path to write the JSON report")
 	flag.DurationVar(&reportInterval, "interval", 30*time.Second, "Interval between report writes")
 	flag.StringVar(&excludePaths, "exclude", "/proc/,/sys/,/dev/", "Comma-separated path prefixes to exclude")
@@ -60,15 +58,8 @@ func main() {
 		namespace = os.Getenv("POD_NAMESPACE")
 	}
 
-	// Parse cgroup paths - support both single and multiple paths
-	var parsedCgroupPaths []string
-	if cgroupPaths != "" {
-		parsedCgroupPaths = config.ParseCgroupPaths(cgroupPaths)
-	}
-
 	cfg := &config.Config{
 		CgroupPath:     cgroupPath,
-		CgroupPaths:    parsedCgroupPaths,
 		ReportPath:     reportPath,
 		ReportInterval: reportInterval,
 		ExcludePaths:   config.ParseExcludePaths(excludePaths),
@@ -147,17 +138,25 @@ func run(ctx context.Context, cfg *config.Config) error {
 	log.Info("eBPF program loaded successfully")
 	healthChecker.SetEBPFLoaded()
 
-	// Add cgroup(s) to trace
-	// cfg.Validate() ensures CgroupPaths is populated (from either -cgroup or -cgroups)
-	for i, cgroupPath := range cfg.CgroupPaths {
-		cgroupID, err := cgroup.GetCgroupIDByPath(cgroupPath)
+	// Add cgroup to trace
+	// Auto-discover cgroup path if not provided
+	cgroupPath := cfg.CgroupPath
+	if cgroupPath == "" {
+		discovered, err := cgroup.GetSelfCgroupPath()
 		if err != nil {
-			return fmt.Errorf("getting cgroup ID for path %s: %w", cgroupPath, err)
+			return fmt.Errorf("auto-discovering cgroup path: %w", err)
 		}
-		log.Infof("Tracing cgroup %d/%d: %s (ID: %d)", i+1, len(cfg.CgroupPaths), cgroupPath, cgroupID)
-		if err := probe.AddTracedCgroup(cgroupID); err != nil {
-			return fmt.Errorf("adding traced cgroup %s: %w", cgroupPath, err)
-		}
+		cgroupPath = discovered
+		log.Infof("Auto-discovered cgroup path: %s", cgroupPath)
+	}
+
+	cgroupID, err := cgroup.GetCgroupIDByPath(cgroupPath)
+	if err != nil {
+		return fmt.Errorf("getting cgroup ID: %w", err)
+	}
+	log.Infof("Tracing cgroup: %s (ID: %d)", cgroupPath, cgroupID)
+	if err := probe.AddTracedCgroup(cgroupID); err != nil {
+		return fmt.Errorf("adding traced cgroup: %w", err)
 	}
 
 	// Create processor and reporter

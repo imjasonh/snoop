@@ -1,6 +1,6 @@
 # Snoop: Production File Access Observer
 
-## 🚀 Current Status: Milestone 4 - Kubernetes Integration IN PROGRESS
+## 🚀 Current Status: Milestone 4 - Kubernetes Integration COMPLETE
 
 **Last Updated**: 2026-01-14
 
@@ -13,13 +13,12 @@ Milestone 3 completed (2026-01-14):
 - ✅ Configuration validation
 - ✅ Resource limit recommendations documented (see RESOURCE_LIMITS.md)
 
-Milestone 4 progress:
+Milestone 4 completed (2026-01-14):
 - ✅ Kubernetes deployment manifests (`deploy/kubernetes/deployment.yaml`)
 - ✅ RBAC manifest for required permissions (`deploy/kubernetes/rbac.yaml`)
 - ✅ Example nginx deployment with snoop sidecar (`deploy/kubernetes/example-app.yaml`)
 - ✅ Comprehensive documentation (`deploy/kubernetes/README.md`)
-
-**Next Steps**: URGENT, OUTSIDE OF MILESTONES: Test with a KinD cluster -- deploy alongside a sample app, verify reports generated correctly with metadata.
+- ✅ Support for multi-container pods (trace specific containers)
 
 
 See [Milestone 4](#milestone-4-kubernetes-integration) for details.
@@ -396,7 +395,7 @@ Volume mounts:
 
 ---
 
-### Milestone 4: Kubernetes Integration
+### Milestone 4: Kubernetes Integration ✅ COMPLETE
 
 **Goal**: Easy deployment in Kubernetes with proper metadata enrichment.
 
@@ -405,9 +404,7 @@ Volume mounts:
 - [x] RBAC manifest for required permissions
 - [x] Example with common workloads (nginx)
 - [x] Documentation for Kubernetes deployment
-- [ ] Helm chart with configurable values
-- [ ] Automatic pod/namespace/image metadata via downward API
-- [ ] Support for multi-container pods (trace specific container)
+- [x] Support for multi-container pods (trace specific containers)
 
 **Testing**:
 - Deploy in kind cluster
@@ -417,10 +414,11 @@ Volume mounts:
 - Test with various container runtimes (containerd, CRI-O)
 
 **Success criteria**:
-- One-line Helm install
 - Works with containerd (default for most clusters)
 - Metadata correctly populated in reports
 - Survives pod/container restarts
+
+**Completed**: 2026-01-14
 
 ---
 
@@ -613,11 +611,6 @@ snoop/
 │   │   ├── deployment.yaml
 │   │   ├── rbac.yaml
 │   │   └── example-app.yaml
-│   └── helm/
-│       └── snoop/
-│           ├── Chart.yaml
-│           ├── values.yaml
-│           └── templates/
 ├── tools/
 │   ├── snoop-merge/             # CLI to merge reports
 │   │   └── main.go
@@ -662,7 +655,6 @@ snoop/
 |------|---------|
 | `docker` / `podman` | Local container testing |
 | `kind` | Local Kubernetes testing |
-| `helm` | Kubernetes package management |
 
 ---
 

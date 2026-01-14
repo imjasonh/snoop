@@ -11,7 +11,8 @@ import (
 // Config holds the configuration for snoop.
 type Config struct {
 	// Target selection
-	CgroupPath string
+	CgroupPath  string   // Deprecated: use CgroupPaths instead
+	CgroupPaths []string // Multiple cgroup paths to trace (for multi-container pods)
 
 	// Output configuration
 	ReportPath     string
@@ -38,9 +39,15 @@ type Config struct {
 func (c *Config) Validate() error {
 	var errs []string
 
-	// Required fields
-	if c.CgroupPath == "" {
-		errs = append(errs, "cgroup path is required")
+	// Required fields - at least one cgroup path is required
+	// Support both old single path and new multiple paths for backwards compatibility
+	if c.CgroupPath == "" && len(c.CgroupPaths) == 0 {
+		errs = append(errs, "at least one cgroup path is required (use -cgroup or -cgroups)")
+	}
+
+	// If old-style single path is used, copy it to CgroupPaths
+	if c.CgroupPath != "" && len(c.CgroupPaths) == 0 {
+		c.CgroupPaths = []string{c.CgroupPath}
 	}
 
 	if c.ReportPath == "" {
@@ -119,6 +126,21 @@ func (c *Config) ExcludePathsString() string {
 
 // ParseExcludePaths parses a comma-separated string of exclude paths.
 func ParseExcludePaths(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}
+
+// ParseCgroupPaths parses a comma-separated string of cgroup paths.
+func ParseCgroupPaths(s string) []string {
 	if s == "" {
 		return nil
 	}

@@ -2,21 +2,6 @@
 
 An eBPF-based sidecar that observes file access patterns in production containers to inform image slimming decisions.
 
-## Status
-
-**Milestone 4 Complete** - Production ready with Kubernetes support
-
-- ✅ Complete syscall coverage (openat, execve, stat, access, readlink variants)
-- ✅ Path normalization and deduplication
-- ✅ Prometheus metrics and health checks
-- ✅ Structured logging with clog
-- ✅ Memory-bounded operation with LRU cache
-- ✅ Kubernetes deployment manifests and RBAC
-- ✅ Multi-container pod support
-- ✅ Comprehensive documentation
-
-See [plan.md](plan.md) for the complete technical design and roadmap.
-
 ## Overview
 
 Snoop runs as a sidecar container alongside your application, using eBPF to trace file system syscalls. It records which files your application accesses and generates JSON reports to help you identify unused files in your container images.

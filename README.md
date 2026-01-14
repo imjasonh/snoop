@@ -1,8 +1,8 @@
-# Snoop
-
 ![snoop](snoop.png)
 
-An eBPF-based sidecar that observes file access patterns in production containers to inform image slimming decisions.
+**Snoop** is an eBPF-based sidecar that observes file access patterns in production containers to inform image slimming decisions.
+
+It was vibe-coded in like an hour, don't use it in prod. Don't use it at all, see if I care.
 
 ## Overview
 

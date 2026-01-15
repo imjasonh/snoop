@@ -170,3 +170,87 @@ func TestNewSelfExcludingDiscovery(t *testing.T) {
 		t.Fatal("NewSelfExcludingDiscovery returned nil")
 	}
 }
+
+func TestExtractContainerName(t *testing.T) {
+	for _, tt := range []struct {
+		desc     string
+		dirName  string
+		wantName string
+	}{
+		{
+			desc:     "cri-containerd format",
+			dirName:  "cri-containerd-abc123def456ghi789.scope",
+			wantName: "abc123def456",
+		},
+		{
+			desc:     "docker format",
+			dirName:  "docker-1234567890abcdef.scope",
+			wantName: "1234567890ab",
+		},
+		{
+			desc:     "crio format",
+			dirName:  "crio-fedcba0987654321.scope",
+			wantName: "fedcba098765",
+		},
+		{
+			desc:     "short ID",
+			dirName:  "abc123",
+			wantName: "abc123",
+		},
+		{
+			desc:     "long ID without prefix",
+			dirName:  "abc123def456ghi789jkl012",
+			wantName: "abc123def456",
+		},
+		{
+			desc:     "with slice suffix",
+			dirName:  "cri-containerd-abc123def456.slice",
+			wantName: "abc123def456",
+		},
+	} {
+		t.Run(tt.desc, func(t *testing.T) {
+			got := extractContainerName(tt.dirName)
+			if got != tt.wantName {
+				t.Errorf("extractContainerName(%q) = %q, want %q", tt.dirName, got, tt.wantName)
+			}
+		})
+	}
+}
+
+func TestDiscoverAllExceptSelf(t *testing.T) {
+	// This test requires a Linux system with cgroup v2
+	// Skip if we can't get our own cgroup path
+	_, err := GetSelfCgroupPath()
+	if err != nil {
+		t.Skipf("Skipping test on non-Linux system or without cgroup access: %v", err)
+	}
+
+	containers, err := DiscoverAllExceptSelf()
+	if err != nil {
+		t.Skipf("Could not discover containers (might be running in single container): %v", err)
+	}
+
+	// Verify that our own container is not in the list
+	selfID, err := GetSelfCgroupID()
+	if err != nil {
+		t.Fatalf("Failed to get self cgroup ID: %v", err)
+	}
+
+	if _, exists := containers[selfID]; exists {
+		t.Errorf("DiscoverAllExceptSelf included self container (cgroup_id=%d)", selfID)
+	}
+
+	// Verify that all returned containers have valid information
+	for cgroupID, info := range containers {
+		if info.CgroupID != cgroupID {
+			t.Errorf("Container map key %d doesn't match info.CgroupID %d", cgroupID, info.CgroupID)
+		}
+		if info.CgroupPath == "" {
+			t.Errorf("Container %d has empty CgroupPath", cgroupID)
+		}
+		if info.Name == "" {
+			t.Errorf("Container %d has empty Name", cgroupID)
+		}
+		t.Logf("Discovered container: %s (cgroup_id=%d, path=%s)", info.Name, cgroupID, info.CgroupPath)
+	}
+}

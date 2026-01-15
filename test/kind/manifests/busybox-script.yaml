@@ -132,77 +132,17 @@ spec:
                 fieldRef:
                   fieldPath: metadata.uid
 
-          command:
-            - /bin/sh
-            - -c
-
+          # Snoop now auto-discovers all containers in the pod
+          command: ["/usr/local/bin/snoop"]
           args:
-            - |
-              # Find the actual cgroup path using the pod UID
-              # Pod UID format: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
-              # Cgroup format: podaaaaaaaa_bbbb_cccc_dddd_eeeeeeeeeeee
-              POD_UID_CGROUP=$(echo "$POD_UID" | tr '-' '_')
-              echo "Looking for cgroup with pod UID: pod${POD_UID_CGROUP}"
-
-              # Search for the pod cgroup directory
-              POD_CGROUP=$(find /sys/fs/cgroup -name "*pod${POD_UID_CGROUP}*" -type d 2>/dev/null | head -1)
-
-              if [ -z "$POD_CGROUP" ]; then
-                echo "ERROR: Could not find cgroup for pod UID $POD_UID"
-                exit 1
-              fi
-
-              echo "Found pod cgroup: ${POD_CGROUP}"
-
-              # Wait a moment for containers to start
-              sleep 3
-
-              # Find the app container's cgroup by looking for the one with the most processes
-              # that is NOT running snoop itself
-              APP_CGROUP=""
-              MAX_PROCS=0
-              for cgroup in $(find "$POD_CGROUP" -maxdepth 1 -name "cri-containerd-*.scope" -type d 2>/dev/null); do
-                PROC_COUNT=$(cat "$cgroup/cgroup.procs" 2>/dev/null | wc -l)
-
-                # Check if this cgroup contains the snoop process (us!)
-                FIRST_PID=$(cat "$cgroup/cgroup.procs" 2>/dev/null | head -1)
-                if [ -n "$FIRST_PID" ]; then
-                  CMDLINE=$(cat "/proc/$FIRST_PID/cmdline" 2>/dev/null | tr '\0' ' ')
-                  # Skip if this is our own cgroup (running /bin/sh with snoop in the command)
-                  if echo "$CMDLINE" | grep -q "snoop"; then
-                    echo "Cgroup $cgroup has $PROC_COUNT processes (skipping - contains snoop)"
-                    continue
-                  fi
-                fi
-
-                echo "Cgroup $cgroup has $PROC_COUNT processes"
-                if [ "$PROC_COUNT" -gt "$MAX_PROCS" ]; then
-                  MAX_PROCS=$PROC_COUNT
-                  APP_CGROUP=$cgroup
-                fi
-              done
-
-              if [ -z "$APP_CGROUP" ]; then
-                echo "ERROR: Could not find app container cgroup"
-                exit 1
-              fi
-
-              echo "Found app container cgroup with $MAX_PROCS processes: ${APP_CGROUP}"
-
-              # Remove /sys/fs/cgroup prefix for the snoop argument
-              CGROUP_PATH=${APP_CGROUP#/sys/fs/cgroup}
-              echo "Found app container cgroup: ${CGROUP_PATH}"
-
-              # Start snoop with cgroup path (GetCgroupIDByPath prepends /sys/fs/cgroup)
-              exec /usr/local/bin/snoop \
-                -cgroup="${CGROUP_PATH}" \
-                -report=/data/snoop-report.json \
-                -interval=30s \
-                -exclude=/proc/,/sys/,/dev/ \
-                -metrics-addr=:9090 \
-                -log-level=debug \
-                -max-unique-files=100000 \
-                -container-id="$POD_NAME"
+            - -report=/data/snoop-report.json
+            - -interval=30s
+            - -exclude=/proc/,/sys/,/dev/
+            - -metrics-addr=:9090
+            - -log-level=debug
+            - -max-unique-files=100000
+            - -pod-name=$(POD_NAME)
+            - -namespace=$(POD_NAMESPACE)
 
           volumeMounts:
             - name: snoop-data

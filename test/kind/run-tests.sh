@@ -161,8 +161,8 @@ run_test() {
         return 1
     fi
 
-    # Check minimum file count
-    FILE_COUNT=$(jq '.files | length' "$REPORT_FILE")
+    # Check minimum file count (sum across all containers)
+    FILE_COUNT=$(jq '[.containers[].files | length] | add' "$REPORT_FILE")
     if [ "$FILE_COUNT" -lt "$expected_min_files" ]; then
         echo -e "${RED}❌ FAILED: Too few files captured ($FILE_COUNT < $expected_min_files)${NC}"
         FAILED=$((FAILED + 1))
@@ -173,12 +173,16 @@ run_test() {
 
     echo ""
     echo -e "${GREEN}✅ PASSED: $test_name${NC}"
+    echo "   Containers: $(jq '.containers | length' "$REPORT_FILE")"
     echo "   Files captured: $FILE_COUNT"
     echo "   Total events: $(jq '.total_events' "$REPORT_FILE")"
     echo "   Dropped events: $(jq '.dropped_events' "$REPORT_FILE")"
     echo ""
+    echo "Per-container breakdown:"
+    jq -r '.containers[] | "     \(.name): \(.unique_files) files, \(.total_events) events"' "$REPORT_FILE"
+    echo ""
     echo "Sample files captured:"
-    (jq -r '.files[] | "     " + .' "$REPORT_FILE" | head -10) || echo "     (none shown)"
+    (jq -r '.containers[].files[] | "     " + .' "$REPORT_FILE" | head -10) || echo "     (none shown)"
     PASSED=$((PASSED + 1))
 
     # Cleanup (async - don't block)
@@ -211,6 +215,24 @@ run_test "busybox-controlled" \
     "$SCRIPT_DIR/manifests/busybox-script.yaml" \
     "busybox-test" \
     5
+
+# Test 3: Multi-container pod (uses new test script)
+echo "================================================"
+echo "Test: Multi-Container Pod"
+echo "================================================"
+if [ -x "$SCRIPT_DIR/test-multi-container.sh" ]; then
+    if IMAGE_TAG="$IMAGE_TAG" "$SCRIPT_DIR/test-multi-container.sh"; then
+        echo -e "${GREEN}✓ Multi-container test PASSED${NC}"
+        ((PASSED++))
+    else
+        echo -e "${RED}✗ Multi-container test FAILED${NC}"
+        ((FAILED++))
+        FAILED_TESTS+=("multi-container")
+    fi
+else
+    echo -e "${YELLOW}⚠ Multi-container test script not found or not executable${NC}"
+fi
+echo ""
 
 # Clean up any remaining resources
 echo ""

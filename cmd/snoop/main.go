@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -26,30 +27,32 @@ import (
 
 func main() {
 	var (
-		cgroupPath     string
 		reportPath     string
 		reportInterval time.Duration
 		excludePaths   string
 		imageRef       string
+		imageDigest    string
 		containerID    string
 		podName        string
 		namespace      string
+		labels         string
 		metricsAddr    string
 		logLevel       slag.Level
 		maxUniqueFiles int
 	)
 
-	flag.StringVar(&cgroupPath, "cgroup", "", "Cgroup path to trace (optional, auto-discovers if omitted)")
 	flag.StringVar(&reportPath, "report", "/data/snoop-report.json", "Path to write the JSON report")
 	flag.DurationVar(&reportInterval, "interval", 30*time.Second, "Interval between report writes")
 	flag.StringVar(&excludePaths, "exclude", "/proc/,/sys/,/dev/", "Comma-separated path prefixes to exclude")
 	flag.StringVar(&imageRef, "image", "", "Image reference for report metadata")
+	flag.StringVar(&imageDigest, "image-digest", "", "Image digest for report metadata")
 	flag.StringVar(&containerID, "container-id", "", "Container ID for report metadata")
 	flag.StringVar(&podName, "pod-name", "", "Pod name for report metadata")
 	flag.StringVar(&namespace, "namespace", "", "Namespace for report metadata")
+	flag.StringVar(&labels, "labels", "", "Comma-separated key=value labels for report metadata")
 	flag.StringVar(&metricsAddr, "metrics-addr", ":9090", "Address for Prometheus metrics endpoint (empty to disable)")
 	flag.Var(&logLevel, "log-level", "Log level (debug, info, warn, error)")
-	flag.IntVar(&maxUniqueFiles, "max-unique-files", config.DefaultMaxUniqueFiles, fmt.Sprintf("Maximum unique files to track (0 = unbounded, default = %d)", config.DefaultMaxUniqueFiles))
+	flag.IntVar(&maxUniqueFiles, "max-unique-files", config.DefaultMaxUniqueFiles, fmt.Sprintf("Maximum unique files to track per container (0 = unbounded, default = %d)", config.DefaultMaxUniqueFiles))
 	flag.Parse()
 
 	// Build configuration from flags (also check environment variables)
@@ -61,14 +64,15 @@ func main() {
 	}
 
 	cfg := &config.Config{
-		CgroupPath:     cgroupPath,
 		ReportPath:     reportPath,
 		ReportInterval: reportInterval,
 		ExcludePaths:   config.ParseExcludePaths(excludePaths),
 		ImageRef:       imageRef,
+		ImageDigest:    imageDigest,
 		ContainerID:    containerID,
 		PodName:        podName,
 		Namespace:      namespace,
+		Labels:         parseLabels(labels),
 		MetricsAddr:    metricsAddr,
 		LogLevel:       slog.Level(logLevel),
 		MaxUniqueFiles: maxUniqueFiles,
@@ -87,6 +91,24 @@ func main() {
 	if err := run(ctx, cfg); err != nil {
 		clog.FromContext(ctx).Fatalf("Fatal error: %v", err)
 	}
+}
+
+func parseLabels(s string) map[string]string {
+	if s == "" {
+		return nil
+	}
+	result := make(map[string]string)
+	for _, pair := range strings.Split(s, ",") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+		parts := strings.SplitN(pair, "=", 2)
+		if len(parts) == 2 {
+			result[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+		}
+	}
+	return result
 }
 
 func run(ctx context.Context, cfg *config.Config) error {
@@ -140,29 +162,37 @@ func run(ctx context.Context, cfg *config.Config) error {
 	log.Info("eBPF program loaded successfully")
 	healthChecker.SetEBPFLoaded()
 
-	// Add cgroup to trace
-	// Auto-discover cgroup path if not provided
-	cgroupPath := cfg.CgroupPath
-	if cgroupPath == "" {
-		discovered, err := cgroup.GetSelfCgroupPath()
-		if err != nil {
-			return fmt.Errorf("auto-discovering cgroup path: %w", err)
-		}
-		cgroupPath = discovered
-		log.Infof("Auto-discovered cgroup path: %s", cgroupPath)
+	// Auto-discover all containers in the pod
+	log.Info("Discovering containers in pod")
+	discoveredContainers, err := cgroup.DiscoverAllExceptSelf()
+	if err != nil {
+		return fmt.Errorf("discovering containers: %w", err)
 	}
 
-	cgroupID, err := cgroup.GetCgroupIDByPath(cgroupPath)
-	if err != nil {
-		return fmt.Errorf("getting cgroup ID: %w", err)
+	if len(discoveredContainers) == 0 {
+		return fmt.Errorf("no containers discovered (pod has only snoop?)")
 	}
-	log.Infof("Tracing cgroup: %s (ID: %d)", cgroupPath, cgroupID)
-	if err := probe.AddTracedCgroup(cgroupID); err != nil {
-		return fmt.Errorf("adding traced cgroup: %w", err)
+
+	log.Infof("Discovered %d containers to trace", len(discoveredContainers))
+	for cgroupID, info := range discoveredContainers {
+		log.Infof("  - %s (cgroup_id=%d, path=%s)", info.Name, cgroupID, info.CgroupPath)
+		if err := probe.AddTracedCgroup(cgroupID); err != nil {
+			return fmt.Errorf("adding cgroup %s: %w", info.Name, err)
+		}
+	}
+
+	// Convert cgroup.ContainerInfo to processor.ContainerInfo to avoid import cycle
+	processorContainers := make(map[uint64]*processor.ContainerInfo)
+	for cgroupID, info := range discoveredContainers {
+		processorContainers[cgroupID] = &processor.ContainerInfo{
+			CgroupID:   info.CgroupID,
+			CgroupPath: info.CgroupPath,
+			Name:       info.Name,
+		}
 	}
 
 	// Create processor and reporter
-	proc := processor.NewProcessor(ctx, cfg.ExcludePaths, cfg.MaxUniqueFiles)
+	proc := processor.NewProcessor(ctx, processorContainers, cfg.ExcludePaths, cfg.MaxUniqueFiles)
 	rep := reporter.NewFileReporter(ctx, cfg.ReportPath)
 
 	startedAt := time.Now()
@@ -178,7 +208,8 @@ func run(ctx context.Context, cfg *config.Config) error {
 	defer reportTicker.Stop()
 
 	writeReport := func() {
-		stats := proc.Stats()
+		containerStats := proc.Stats()
+		aggregateStats := proc.Aggregate()
 		drops, err := probe.Drops()
 		if err != nil {
 			log.Warnf("Failed to read drops counter: %v", err)
@@ -196,36 +227,48 @@ func run(ctx context.Context, cfg *config.Config) error {
 		}
 
 		// Update the evictions counter metric with the delta
-		if stats.EventsEvicted > lastEvicted {
-			delta := stats.EventsEvicted - lastEvicted
+		if aggregateStats.EventsEvicted > lastEvicted {
+			delta := aggregateStats.EventsEvicted - lastEvicted
 			m.EventsEvicted.Add(float64(delta))
 			if delta > 0 {
 				log.Warnf("Deduplication cache eviction: %d file paths evicted since last report", delta)
 			}
-			lastEvicted = stats.EventsEvicted
+			lastEvicted = aggregateStats.EventsEvicted
+		}
+
+		// Build per-container reports
+		filesPerContainer := proc.Files()
+		containers := make([]reporter.ContainerReport, 0, len(containerStats))
+		for cgroupID, stats := range containerStats {
+			containers = append(containers, reporter.ContainerReport{
+				Name:        stats.Name,
+				CgroupID:    cgroupID,
+				CgroupPath:  stats.CgroupPath,
+				Files:       filesPerContainer[cgroupID],
+				TotalEvents: stats.EventsReceived,
+				UniqueFiles: stats.UniqueFiles,
+			})
 		}
 
 		report := &reporter.Report{
-			ContainerID:   cfg.ContainerID,
-			ImageRef:      cfg.ImageRef,
 			PodName:       cfg.PodName,
 			Namespace:     cfg.Namespace,
 			StartedAt:     startedAt,
-			Files:         proc.Files(),
-			TotalEvents:   stats.EventsReceived,
+			Containers:    containers,
+			TotalEvents:   aggregateStats.EventsReceived,
 			DroppedEvents: drops,
 		}
 		if err := rep.Update(ctx, report); err != nil {
 			log.Errorf("Error writing report: %v", err)
 			m.ReportWriteErrors.Inc()
 		} else {
-			log.Infof("Report written: %d unique files, %d events processed, %d dropped, %d evicted",
-				stats.UniqueFiles, stats.EventsProcessed, drops, stats.EventsEvicted)
+			log.Infof("Report written: %d containers, %d unique files, %d events processed, %d dropped, %d evicted",
+				len(containers), aggregateStats.UniqueFiles, aggregateStats.EventsProcessed, drops, aggregateStats.EventsEvicted)
 			m.ReportWrites.Inc()
 			healthChecker.RecordReportWritten()
 		}
 		// Update gauge for unique files count
-		m.UniqueFiles.Set(float64(stats.UniqueFiles))
+		m.UniqueFiles.Set(float64(aggregateStats.UniqueFiles))
 	}
 
 	// Read and process events
@@ -272,15 +315,17 @@ func run(ctx context.Context, cfg *config.Config) error {
 			m.EventsReceived.Inc()
 			healthChecker.RecordEventReceived()
 
-			path, result := proc.Process(procEvent)
+			cgroupID, path, result := proc.Process(procEvent)
 			switch result {
 			case processor.ResultNew:
 				m.EventsProcessed.Inc()
-				log.Debugf("New file: %s", path)
+				log.Debugf("New file: %s (container cgroup_id=%d)", path, cgroupID)
 			case processor.ResultDuplicate:
 				m.EventsDuplicate.Inc()
 			case processor.ResultExcluded:
 				m.EventsExcluded.Inc()
+			case processor.ResultUnknownContainer:
+				// Already logged by processor
 			}
 		}
 	}

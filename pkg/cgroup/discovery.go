@@ -6,10 +6,18 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 )
+
+// ContainerInfo holds information about a discovered container.
+type ContainerInfo struct {
+	CgroupID   uint64
+	CgroupPath string
+	Name       string // Short container ID or name
+}
 
 // Discovery finds cgroup IDs to trace
 type Discovery interface {
@@ -37,6 +45,133 @@ func (d *SelfExcludingDiscovery) Discover(ctx context.Context) ([]uint64, error)
 	// For now, the user will need to manually add cgroups to trace
 	_ = selfID
 	return []uint64{}, nil
+}
+
+// DiscoverAllExceptSelf finds all containers in the current pod,
+// excluding snoop's own container.
+// Returns a map of cgroup_id -> ContainerInfo.
+func DiscoverAllExceptSelf() (map[uint64]*ContainerInfo, error) {
+	// Get our own cgroup path and ID
+	selfCgroupPath, err := GetSelfCgroupPath()
+	if err != nil {
+		return nil, fmt.Errorf("getting self cgroup path: %w", err)
+	}
+
+	selfCgroupID, err := GetSelfCgroupID()
+	if err != nil {
+		return nil, fmt.Errorf("getting self cgroup ID: %w", err)
+	}
+
+	// Get the pod cgroup (parent directory)
+	podCgroupPath := filepath.Dir(selfCgroupPath)
+
+	// Special case: if we're in root cgroup ("/"), we need to find the actual pod cgroup
+	// This happens in some container runtimes (e.g., KinD) where /proc/self/cgroup shows 0::/
+	// In this case, look for POD_UID environment variable to find the pod cgroup
+	if podCgroupPath == "/" || podCgroupPath == "." {
+		podUID := os.Getenv("POD_UID")
+		if podUID != "" {
+			// Convert pod UID format: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+			// to cgroup format: podaaaaaaaa_bbbb_cccc_dddd_eeeeeeeeeeee
+			podUIDCgroup := "pod" + strings.ReplaceAll(podUID, "-", "_")
+
+			// Search for the pod cgroup directory
+			foundPath := ""
+			filepath.Walk("/sys/fs/cgroup", func(path string, info os.FileInfo, err error) error {
+				if err != nil || foundPath != "" {
+					return filepath.SkipDir
+				}
+				if info.IsDir() && strings.Contains(filepath.Base(path), podUIDCgroup) {
+					foundPath = path
+					return filepath.SkipDir
+				}
+				// Limit search depth to avoid scanning entire filesystem
+				if strings.Count(path, "/") > 8 {
+					return filepath.SkipDir
+				}
+				return nil
+			})
+
+			if foundPath != "" {
+				podCgroupPath = strings.TrimPrefix(foundPath, "/sys/fs/cgroup")
+			}
+		}
+	}
+
+	fullPodPath := filepath.Join("/sys/fs/cgroup", podCgroupPath)
+
+	// Read all subdirectories in the pod cgroup
+	entries, err := os.ReadDir(fullPodPath)
+	if err != nil {
+		return nil, fmt.Errorf("reading pod cgroup directory %s: %w", fullPodPath, err)
+	}
+
+	containers := make(map[uint64]*ContainerInfo)
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		// Skip special cgroup control files and directories
+		name := entry.Name()
+		if strings.HasPrefix(name, "cgroup.") || strings.HasPrefix(name, ".") {
+			continue
+		}
+
+		// Build the full cgroup path
+		containerCgroupPath := filepath.Join(podCgroupPath, name)
+
+		// Get the cgroup ID for this container
+		cgroupID, err := GetCgroupIDByPath(containerCgroupPath)
+		if err != nil {
+			// Log but continue - some directories might not be valid cgroups
+			continue
+		}
+
+		// Skip if this is snoop's own container
+		if cgroupID == selfCgroupID {
+			continue
+		}
+
+		// Extract a short, readable name from the cgroup path
+		// Container directories are often in format: cri-containerd-<long-id>.scope
+		shortName := extractContainerName(name)
+
+		containers[cgroupID] = &ContainerInfo{
+			CgroupID:   cgroupID,
+			CgroupPath: containerCgroupPath,
+			Name:       shortName,
+		}
+	}
+
+	return containers, nil
+}
+
+// extractContainerName extracts a readable name from a cgroup directory name.
+// Handles various container runtime formats:
+// - cri-containerd-<id>.scope -> <id[:12]>
+// - docker-<id>.scope -> <id[:12]>
+// - <id> -> <id[:12]>
+func extractContainerName(dirName string) string {
+	// Remove common suffixes
+	name := strings.TrimSuffix(dirName, ".scope")
+	name = strings.TrimSuffix(name, ".slice")
+
+	// Remove common prefixes
+	if strings.HasPrefix(name, "cri-containerd-") {
+		name = strings.TrimPrefix(name, "cri-containerd-")
+	} else if strings.HasPrefix(name, "docker-") {
+		name = strings.TrimPrefix(name, "docker-")
+	} else if strings.HasPrefix(name, "crio-") {
+		name = strings.TrimPrefix(name, "crio-")
+	}
+
+	// Truncate long IDs to 12 characters (like docker ps does)
+	if len(name) > 12 {
+		name = name[:12]
+	}
+
+	return name
 }
 
 // GetSelfCgroupPath returns the cgroup path of the current process
@@ -70,16 +205,20 @@ func GetSelfCgroupID() (uint64, error) {
 
 	// Read the cgroup.id file to get the cgroup ID
 	// The path is /sys/fs/cgroup/<cgroup_path>/cgroup.id
-	// For root cgroup, it's just /sys/fs/cgroup/cgroup.id
-	idPath := "/sys/fs/cgroup" + cgroupPath
-	if !strings.HasSuffix(idPath, "/") {
-		idPath += "/"
+	// cgroupPath from /proc/self/cgroup already has leading /
+	// For root cgroup ("/"), we need special handling
+	var idPath string
+	if cgroupPath == "/" {
+		idPath = "/sys/fs/cgroup/cgroup.id"
+	} else {
+		idPath = filepath.Join("/sys/fs/cgroup", cgroupPath, "cgroup.id")
 	}
-	idPath += "cgroup.id"
 
 	idData, err := os.ReadFile(idPath)
 	if err != nil {
-		return 0, fmt.Errorf("reading cgroup.id from %s: %w", idPath, err)
+		// Fallback to syscall method if cgroup.id file doesn't exist
+		cgroupDir := filepath.Join("/sys/fs/cgroup", cgroupPath)
+		return getCgroupIDFromInode(cgroupDir)
 	}
 
 	id, err := strconv.ParseUint(strings.TrimSpace(string(idData)), 10, 64)
@@ -93,11 +232,9 @@ func GetSelfCgroupID() (uint64, error) {
 // GetCgroupIDByPath returns the cgroup ID for a given cgroup path
 func GetCgroupIDByPath(cgroupPath string) (uint64, error) {
 	// Try reading from cgroup.id file first (newer kernels)
-	idPath := "/sys/fs/cgroup" + cgroupPath
-	if !strings.HasSuffix(idPath, "/") {
-		idPath += "/"
-	}
-	idFilePath := idPath + "cgroup.id"
+	// cgroupPath should have leading /
+	idFilePath := filepath.Join("/sys/fs/cgroup", cgroupPath, "cgroup.id")
+	cgroupDir := filepath.Join("/sys/fs/cgroup", cgroupPath)
 
 	idData, err := os.ReadFile(idFilePath)
 	if err == nil {
@@ -110,7 +247,7 @@ func GetCgroupIDByPath(cgroupPath string) (uint64, error) {
 
 	// Fallback: use name_to_handle_at syscall to get inode number
 	// The cgroup ID is the inode number of the cgroup directory
-	return getCgroupIDFromInode(strings.TrimSuffix(idPath, "/"))
+	return getCgroupIDFromInode(cgroupDir)
 }
 
 // getCgroupIDFromInode gets the cgroup ID from the directory inode

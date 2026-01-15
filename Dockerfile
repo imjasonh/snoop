@@ -49,5 +49,4 @@ RUN apt-get update && apt-get install -y \
 
 COPY --from=builder /workspace/snoop /usr/local/bin/snoop
 
-# No ENTRYPOINT - let Kubernetes control the command
-# When run directly: docker run image /usr/local/bin/snoop [args]
+ENTRYPOINT ["/usr/local/bin/snoop"]

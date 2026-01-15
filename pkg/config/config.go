@@ -15,9 +15,6 @@ const (
 
 // Config holds the configuration for snoop.
 type Config struct {
-	// Target selection
-	CgroupPath string // Optional: auto-discovered if empty
-
 	// Output configuration
 	ReportPath     string
 	ReportInterval time.Duration
@@ -27,9 +24,11 @@ type Config struct {
 
 	// Metadata
 	ImageRef    string
+	ImageDigest string
 	ContainerID string
 	PodName     string
 	Namespace   string
+	Labels      map[string]string
 
 	// Observability
 	MetricsAddr string
@@ -44,7 +43,6 @@ func (c *Config) Validate() error {
 	var errs []string
 
 	// Required fields
-	// Note: CgroupPath is now optional - it will be auto-discovered if empty
 	if c.ReportPath == "" {
 		errs = append(errs, "report path is required")
 	}

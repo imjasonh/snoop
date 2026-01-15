@@ -20,6 +20,11 @@ type Event struct {
 	Path      string
 }
 
+const (
+	// eventHeaderSize is the fixed size of the event header (8 bytes cgroup_id + 4 bytes pid + 4 bytes syscall_nr)
+	eventHeaderSize = 16
+)
+
 // Probe manages the eBPF program lifecycle
 type Probe struct {
 	objs   *bpf.SnoopObjects
@@ -158,17 +163,39 @@ func (p *Probe) RemoveTracedCgroup(cgroupID uint64) error {
 }
 
 // ReadEvent reads one event from the ring buffer
+// It respects the context and will return ctx.Err() if the context is cancelled
 func (p *Probe) ReadEvent(ctx context.Context) (*Event, error) {
-	record, err := p.reader.Read()
-	if err != nil {
-		if errors.Is(err, ringbuf.ErrClosed) {
-			return nil, err
-		}
-		return nil, fmt.Errorf("reading from ring buffer: %w", err)
+	// Use a goroutine + channel pattern to make Read() cancellable
+	type result struct {
+		record ringbuf.Record
+		err    error
 	}
+	ch := make(chan result, 1)
 
+	go func() {
+		record, err := p.reader.Read()
+		ch <- result{record, err}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case res := <-ch:
+		if res.err != nil {
+			if errors.Is(res.err, ringbuf.ErrClosed) {
+				return nil, res.err
+			}
+			return nil, fmt.Errorf("reading from ring buffer: %w", res.err)
+		}
+
+		return parseEvent(res.record)
+	}
+}
+
+// parseEvent parses a raw ring buffer record into an Event
+func parseEvent(record ringbuf.Record) (*Event, error) {
 	// Parse the event
-	if len(record.RawSample) < 16 {
+	if len(record.RawSample) < eventHeaderSize {
 		return nil, fmt.Errorf("invalid event size: %d", len(record.RawSample))
 	}
 
@@ -179,7 +206,7 @@ func (p *Probe) ReadEvent(ctx context.Context) (*Event, error) {
 	}
 
 	// Extract the null-terminated path string
-	pathBytes := record.RawSample[16:]
+	pathBytes := record.RawSample[eventHeaderSize:]
 	for i, b := range pathBytes {
 		if b == 0 {
 			event.Path = string(pathBytes[:i])

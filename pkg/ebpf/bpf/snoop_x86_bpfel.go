@@ -18,7 +18,7 @@ type SnoopEvent struct {
 	CgroupId  uint64
 	Pid       uint32
 	SyscallNr uint32
-	Path      [256]int8
+	Path      [4096]int8
 }
 
 // LoadSnoop returns the embedded CollectionSpec for Snoop.

@@ -251,6 +251,23 @@ func TestDiscoverAllExceptSelf(t *testing.T) {
 		if info.Name == "" {
 			t.Errorf("Container %d has empty Name", cgroupID)
 		}
-		t.Logf("Discovered container: %s (cgroup_id=%d, path=%s)", info.Name, cgroupID, info.CgroupPath)
+
+		// Log APK database detection status
+		if info.HasAPK {
+			t.Logf("Discovered container: %s (cgroup_id=%d, path=%s, apk_db=%s)",
+				info.Name, cgroupID, info.CgroupPath, info.APKDBPath)
+		} else {
+			t.Logf("Discovered container: %s (cgroup_id=%d, path=%s, no APK)",
+				info.Name, cgroupID, info.CgroupPath)
+		}
+
+		// Verify that if HasAPK is true, APKDBPath is non-empty
+		if info.HasAPK && info.APKDBPath == "" {
+			t.Errorf("Container %d has HasAPK=true but empty APKDBPath", cgroupID)
+		}
+		// Verify that if HasAPK is false, APKDBPath is empty
+		if !info.HasAPK && info.APKDBPath != "" {
+			t.Errorf("Container %d has HasAPK=false but non-empty APKDBPath=%s", cgroupID, info.APKDBPath)
+		}
 	}
 }

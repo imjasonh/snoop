@@ -1,15 +1,41 @@
-version: '3.8'
+version: "3.8"
 
 services:
-  # Test application container
-  app:
+  # Alpine test container - exercises coreutils and busybox packages
+  alpine-app:
     image: alpine:latest
+    container_name: alpine-app
     command: >
       sh -c "
-        echo 'Test app starting...';
+        echo 'Alpine test app starting...';
+        apk add --no-cache curl ca-certificates tzdata python3;
+        echo 'Installed packages: curl ca-certificates tzdata python3';
         while true; do
           cat /etc/passwd > /dev/null;
           ls /usr/bin > /dev/null;
+          curl --version > /dev/null;
+          python3 --version > /dev/null;
+          date > /dev/null;
+          sleep 5;
+        done
+      "
+    networks:
+      - snoop-net
+
+  # Wolfi test container - exercises different package set
+  wolfi-app:
+    image: cgr.dev/chainguard/wolfi-base:latest
+    container_name: wolfi-app
+    command: >
+      sh -c "
+        echo 'Wolfi test app starting...';
+        apk add --no-cache bash curl wget ca-certificates;
+        echo 'Installed packages: bash curl wget ca-certificates';
+        while true; do
+          cat /etc/os-release > /dev/null;
+          ls -la /usr/bin > /dev/null;
+          bash --version > /dev/null;
+          curl --version > /dev/null;
           sleep 5;
         done
       "
@@ -20,17 +46,20 @@ services:
   snoop:
     build:
       context: ..
-      dockerfile: deploy/Dockerfile
+      dockerfile: Dockerfile
+    container_name: snoop
     privileged: true
     pid: host
     volumes:
       - /sys/fs/cgroup:/sys/fs/cgroup:ro
       - /sys/kernel/debug:/sys/kernel/debug:ro
+      - /proc:/proc:ro
       - snoop-data:/data
     environment:
       - TARGET_CGROUP=${TARGET_CGROUP:-}
     depends_on:
-      - app
+      - alpine-app
+      - wolfi-app
     networks:
       - snoop-net
 

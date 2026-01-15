@@ -43,6 +43,10 @@ spec:
           hostPath:
             path: /sys/kernel/debug
             type: Directory
+        - name: proc
+          hostPath:
+            path: /proc
+            type: Directory
 
       containers:
         # First application container - nginx
@@ -75,7 +79,7 @@ spec:
 
         # Second application container - busybox
         - name: busybox
-          image: busybox:latest
+          image: cgr.dev/chainguard/busybox:latest
           command:
             - sh
             - -c
@@ -136,6 +140,7 @@ spec:
                 - SYS_ADMIN
                 - BPF
                 - PERFMON
+                - SYS_PTRACE
             readOnlyRootFilesystem: true
 
           env:
@@ -173,6 +178,9 @@ spec:
               readOnly: true
             - name: debugfs
               mountPath: /sys/kernel/debug
+              readOnly: true
+            - name: proc
+              mountPath: /proc
               readOnly: true
 
           ports:

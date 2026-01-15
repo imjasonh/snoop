@@ -59,7 +59,7 @@ spec:
         # This init container discovers the pod cgroup path
         # The snoop container will later filter out its own cgroup
         - name: cgroup-finder
-          image: busybox:latest
+          image: cgr.dev/chainguard/busybox:latest
           command:
             - sh
             - -c
@@ -93,7 +93,7 @@ spec:
 
         # Log shipper sidecar (simulated - in practice this might be fluentd, filebeat, etc.)
         - name: log-shipper
-          image: busybox:latest
+          image: cgr.dev/chainguard/busybox:latest
           command:
             - sh
             - -c

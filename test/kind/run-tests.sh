@@ -44,7 +44,7 @@ if [ ! -f "$SCRIPT_DIR/.image-tag" ]; then
 fi
 
 # Allow IMAGE_TAG to be set via environment, otherwise read from file
-if [ -z "$IMAGE_TAG" ]; then
+if [ -z "${IMAGE_TAG:-}" ]; then
     IMAGE_TAG=$(cat "$SCRIPT_DIR/.image-tag")
 fi
 echo "Using image: $IMAGE_TAG"

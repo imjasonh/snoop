@@ -19,7 +19,6 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			desc: "valid config with cgroup",
 			cfg: &Config{
-				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportPath:     filepath.Join(tmpDir, "report.json"),
 				ReportInterval: 30 * time.Second,
 				ExcludePaths:   []string{"/proc/", "/sys/"},
@@ -41,7 +40,6 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			desc: "missing report path",
 			cfg: &Config{
-				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportInterval: 30 * time.Second,
 				ExcludePaths:   []string{"/proc/", "/sys/"},
 				LogLevel:       slog.LevelInfo,
@@ -51,7 +49,6 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			desc: "zero report interval",
 			cfg: &Config{
-				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportPath:     filepath.Join(tmpDir, "report.json"),
 				ReportInterval: 0,
 				ExcludePaths:   []string{"/proc/", "/sys/"},
@@ -62,7 +59,6 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			desc: "negative report interval",
 			cfg: &Config{
-				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportPath:     filepath.Join(tmpDir, "report.json"),
 				ReportInterval: -1 * time.Second,
 				ExcludePaths:   []string{"/proc/", "/sys/"},
@@ -73,7 +69,6 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			desc: "report interval too short",
 			cfg: &Config{
-				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportPath:     filepath.Join(tmpDir, "report.json"),
 				ReportInterval: 500 * time.Millisecond,
 				ExcludePaths:   []string{"/proc/", "/sys/"},
@@ -84,7 +79,6 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			desc: "negative max unique files",
 			cfg: &Config{
-				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportPath:     filepath.Join(tmpDir, "report.json"),
 				ReportInterval: 30 * time.Second,
 				ExcludePaths:   []string{"/proc/", "/sys/"},
@@ -96,7 +90,6 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			desc: "nonexistent report directory",
 			cfg: &Config{
-				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportPath:     "/nonexistent/directory/report.json",
 				ReportInterval: 30 * time.Second,
 				ExcludePaths:   []string{"/proc/", "/sys/"},
@@ -107,7 +100,6 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			desc: "invalid metrics address",
 			cfg: &Config{
-				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportPath:     filepath.Join(tmpDir, "report.json"),
 				ReportInterval: 30 * time.Second,
 				ExcludePaths:   []string{"/proc/", "/sys/"},
@@ -119,7 +111,6 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			desc: "valid metrics address - port only",
 			cfg: &Config{
-				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportPath:     filepath.Join(tmpDir, "report.json"),
 				ReportInterval: 30 * time.Second,
 				LogLevel:       slog.LevelInfo,
@@ -130,7 +121,6 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			desc: "valid metrics address - host and port",
 			cfg: &Config{
-				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportPath:     filepath.Join(tmpDir, "report.json"),
 				ReportInterval: 30 * time.Second,
 				LogLevel:       slog.LevelInfo,
@@ -141,7 +131,6 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			desc: "empty metrics address is valid",
 			cfg: &Config{
-				CgroupPath:     "/sys/fs/cgroup/test",
 				ReportPath:     filepath.Join(tmpDir, "report.json"),
 				ReportInterval: 30 * time.Second,
 				LogLevel:       slog.LevelInfo,

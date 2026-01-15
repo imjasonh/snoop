@@ -6,31 +6,31 @@ metadata:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: alpine-test
+  name: multi-container-test
   namespace: snoop-test
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: alpine-test
+  name: multi-container-test
   namespace: snoop-test
   labels:
-    test: alpine-basic
+    test: multi-container
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: alpine-test
+      app: multi-container-test
   template:
     metadata:
       labels:
-        app: alpine-test
-        test: alpine-basic
+        app: multi-container-test
+        test: multi-container
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "9090"
     spec:
-      serviceAccountName: alpine-test
+      serviceAccountName: multi-container-test
 
       volumes:
         - name: snoop-data
@@ -45,39 +45,87 @@ spec:
             type: Directory
 
       containers:
-        - name: app
-          image: alpine:latest
+        # First application container - nginx
+        - name: nginx
+          image: nginx:alpine
           command:
             - sh
             - -c
             - |
-              echo "Alpine test app starting..."
-              echo "This app will access a predictable set of files."
+              echo "Nginx container starting..."
+              # Access some nginx-specific files
+              cat /etc/nginx/nginx.conf > /dev/null
+              ls /usr/share/nginx/html/ > /dev/null
 
+              # Start nginx in background
+              nginx -g 'daemon off;' &
+              NGINX_PID=$!
+
+              # Periodically access config files
               while true; do
-                # Read config files
-                cat /etc/passwd > /dev/null
-                cat /etc/hosts > /dev/null
-                cat /etc/hostname > /dev/null
-                cat /etc/resolv.conf > /dev/null
-
-                # List directories
-                ls /usr/bin > /dev/null
-                ls /lib > /dev/null
-
-                # Execute binaries
-                /bin/sh -c 'echo test' > /dev/null
-
-                echo "File access cycle complete"
-                sleep 5
+                cat /etc/nginx/nginx.conf > /dev/null
+                cat /etc/nginx/conf.d/default.conf > /dev/null 2>&1 || true
+                ls /usr/share/nginx/html/ > /dev/null
+                sleep 10
               done
           volumeMounts:
             - name: snoop-data
               mountPath: /data
               readOnly: true
 
+        # Second application container - busybox
+        - name: busybox
+          image: busybox:latest
+          command:
+            - sh
+            - -c
+            - |
+              echo "Busybox container starting..."
+
+              while true; do
+                # Access different files than nginx
+                cat /etc/passwd > /dev/null
+                cat /etc/group > /dev/null
+                cat /etc/hostname > /dev/null
+                ls /bin > /dev/null
+                ls /usr/bin > /dev/null
+
+                echo "Busybox file access cycle complete"
+                sleep 10
+              done
+          volumeMounts:
+            - name: snoop-data
+              mountPath: /data
+              readOnly: true
+
+        # Third application container - alpine (accesses some common files)
+        - name: alpine
+          image: alpine:latest
+          command:
+            - sh
+            - -c
+            - |
+              echo "Alpine container starting..."
+
+              while true; do
+                # Access some files that overlap with busybox
+                cat /etc/passwd > /dev/null
+                cat /etc/hosts > /dev/null
+                cat /etc/resolv.conf > /dev/null
+                # And some unique ones
+                ls /etc/apk > /dev/null 2>&1 || true
+                cat /etc/alpine-release > /dev/null 2>&1 || true
+
+                echo "Alpine file access cycle complete"
+                sleep 10
+              done
+          volumeMounts:
+            - name: snoop-data
+              mountPath: /data
+              readOnly: true
+
+        # Snoop sidecar - traces all app containers
         - name: snoop
-          # Image will be replaced by test runner with actual built image
           image: snoop:test-latest
           imagePullPolicy: Never
 
@@ -104,8 +152,9 @@ spec:
                 fieldRef:
                   fieldPath: metadata.uid
 
-          # Snoop now auto-discovers all containers in the pod
-          command: ["/usr/local/bin/snoop"]
+          command:
+            - /usr/local/bin/snoop
+
           args:
             - -report=/data/snoop-report.json
             - -interval=30s

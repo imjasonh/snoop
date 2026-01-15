@@ -12,26 +12,32 @@ import (
 	"github.com/chainguard-dev/clog"
 )
 
-// Report represents the file access report for a container.
+// Report represents the file access report for a pod with multiple containers.
 type Report struct {
-	// Identity
-	ContainerID string            `json:"container_id,omitempty"`
-	ImageRef    string            `json:"image_ref,omitempty"`
-	ImageDigest string            `json:"image_digest,omitempty"`
-	PodName     string            `json:"pod_name,omitempty"`
-	Namespace   string            `json:"namespace,omitempty"`
-	Labels      map[string]string `json:"labels,omitempty"`
+	// Pod-level metadata
+	PodName   string `json:"pod_name,omitempty"`
+	Namespace string `json:"namespace,omitempty"`
 
 	// Timing
 	StartedAt     time.Time `json:"started_at"`
 	LastUpdatedAt time.Time `json:"last_updated_at"`
 
-	// Data
-	Files []string `json:"files"`
+	// Per-container data
+	Containers []ContainerReport `json:"containers"`
 
-	// Stats
+	// Aggregate stats
 	TotalEvents   uint64 `json:"total_events"`
 	DroppedEvents uint64 `json:"dropped_events"`
+}
+
+// ContainerReport represents the file access report for a single container.
+type ContainerReport struct {
+	Name        string   `json:"name"`
+	CgroupID    uint64   `json:"cgroup_id"`
+	CgroupPath  string   `json:"cgroup_path"`
+	Files       []string `json:"files"`
+	TotalEvents uint64   `json:"total_events"`
+	UniqueFiles int      `json:"unique_files"`
 }
 
 // Reporter defines the interface for report output.
@@ -64,13 +70,24 @@ func NewFileReporter(ctx context.Context, path string) *FileReporter {
 func (r *FileReporter) Update(ctx context.Context, report *Report) error {
 	log := clog.FromContext(ctx)
 
-	// Sort files for consistent output
-	sortedFiles := make([]string, len(report.Files))
-	copy(sortedFiles, report.Files)
-	sort.Strings(sortedFiles)
-
+	// Make a copy and ensure files are sorted within each container
 	reportCopy := *report
-	reportCopy.Files = sortedFiles
+	reportCopy.Containers = make([]ContainerReport, len(report.Containers))
+	copy(reportCopy.Containers, report.Containers)
+
+	// Sort containers by cgroup ID for consistent ordering
+	sort.Slice(reportCopy.Containers, func(i, j int) bool {
+		return reportCopy.Containers[i].CgroupID < reportCopy.Containers[j].CgroupID
+	})
+
+	// Ensure each container's files are sorted
+	totalFiles := 0
+	for i := range reportCopy.Containers {
+		// Files should already be sorted from processor, but ensure it
+		sort.Strings(reportCopy.Containers[i].Files)
+		totalFiles += len(reportCopy.Containers[i].Files)
+	}
+
 	reportCopy.LastUpdatedAt = time.Now()
 
 	// Marshal to JSON with indentation for readability
@@ -79,7 +96,7 @@ func (r *FileReporter) Update(ctx context.Context, report *Report) error {
 		return fmt.Errorf("marshaling report: %w", err)
 	}
 
-	log.Debugf("Marshaled report: %d bytes, %d files", len(data), len(sortedFiles))
+	log.Debugf("Marshaled report: %d bytes, %d containers, %d total files", len(data), len(reportCopy.Containers), totalFiles)
 
 	// Write atomically: write to temp file, then rename
 	dir := filepath.Dir(r.path)

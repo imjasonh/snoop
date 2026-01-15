@@ -13,7 +13,8 @@ Snoop runs as a sidecar container alongside your application, using eBPF to trac
 - **Zero application changes**: Traces syscalls in the kernel, no instrumentation needed
 - **Low overhead**: <1% CPU, 32-128 MB memory for typical workloads
 - **Production ready**: Prometheus metrics, health checks, graceful shutdown
-- **Kubernetes native**: Manifests, RBAC, and multi-container support included
+- **Kubernetes native**: Manifests, RBAC, automatic multi-container pod support
+- **Per-container attribution**: Tracks which container accessed which files
 - **Best-effort design**: Conservative filtering (records more rather than less)
 
 ### Non-goals
@@ -146,7 +147,7 @@ To add snoop as a sidecar to an existing Kubernetes deployment:
 
 Complete example in [deploy/kubernetes/example-app.yaml](deploy/kubernetes/example-app.yaml).
 
-**Note**: Snoop automatically discovers its cgroup path on startup. The `-cgroup` flag is optional and only needed if you want to trace a different cgroup than snoop's own.
+**Note**: Snoop automatically discovers all containers in the pod at startup and excludes itself. No manual cgroup configuration is required.
 
 ### Configuration
 
@@ -154,11 +155,10 @@ Key command-line arguments:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-cgroup` | (auto-discovered) | Cgroup path to trace (optional, auto-discovers own cgroup if omitted) |
 | `-report` | `/data/snoop-report.json` | Path to write JSON reports |
 | `-interval` | `30s` | Interval between report writes |
 | `-exclude` | `/proc/,/sys/,/dev/` | Path prefixes to exclude |
-| `-max-unique-files` | `0` | Max unique files to track (0 = unbounded) |
+| `-max-unique-files` | `100000` | Max unique files per container (0 = unbounded) |
 | `-metrics-addr` | `:9090` | Address for metrics/health endpoint |
 | `-log-level` | `info` | Log level (debug, info, warn, error) |
 
@@ -239,27 +239,45 @@ See [RESOURCE_LIMITS.md](RESOURCE_LIMITS.md) for detailed recommendations and tu
 
 ## Output
 
-Snoop generates JSON reports with the following structure:
+Snoop generates JSON reports with per-container file attribution:
 
 ```json
 {
-  "container_id": "nginx",
-  "image_ref": "docker.io/library/nginx:latest",
-  "pod_name": "nginx-with-snoop-7d4f8b9c5d-x7k9m",
-  "namespace": "snoop-system",
-  "started_at": "2026-01-14T10:30:00Z",
-  "last_updated_at": "2026-01-14T10:31:00Z",
-  "files": [
-    "/etc/nginx/nginx.conf",
-    "/etc/nginx/conf.d/default.conf",
-    "/usr/share/nginx/html/index.html",
-    "/var/log/nginx/access.log",
-    "/var/log/nginx/error.log"
+  "pod_name": "my-app-7d4f8b9c5d-x7k9m",
+  "namespace": "default",
+  "started_at": "2026-01-15T10:30:00Z",
+  "last_updated_at": "2026-01-15T10:31:00Z",
+  "containers": [
+    {
+      "name": "nginx",
+      "cgroup_id": 12345,
+      "cgroup_path": "/kubepods/burstable/pod.../nginx",
+      "files": [
+        "/etc/nginx/nginx.conf",
+        "/etc/nginx/conf.d/default.conf",
+        "/usr/share/nginx/html/index.html"
+      ],
+      "total_events": 1200,
+      "unique_files": 3
+    },
+    {
+      "name": "sidecar",
+      "cgroup_id": 67890,
+      "cgroup_path": "/kubepods/burstable/pod.../sidecar",
+      "files": [
+        "/etc/fluent/fluent.conf",
+        "/var/log/app.log"
+      ],
+      "total_events": 323,
+      "unique_files": 2
+    }
   ],
   "total_events": 1523,
   "dropped_events": 0
 }
 ```
+
+**Multi-Container Support**: Each container in the pod gets its own entry with independent file tracking. If multiple containers access the same file, it appears in each container's list.
 
 ## Monitoring
 
@@ -435,8 +453,8 @@ Apache License 2.0
 - ✅ **Milestone 1**: eBPF proof of concept
 - ✅ **Milestone 2**: Core functionality (all syscalls, deduplication, reports)
 - ✅ **Milestone 3**: Production hardening (metrics, logging, health checks)
-- ✅ **Milestone 4**: Kubernetes integration
-- 🚧 **Milestone 5**: Multi-deployment aggregation (report merging, diff tools)
+- ✅ **Milestone 4**: Kubernetes integration with multi-container support
+- 📋 **Milestone 5**: Multi-deployment aggregation (report merging, diff tools)
 - 📋 **Milestone 6**: Remote reporting API (centralized collection)
 
 See [plan.md](plan.md) for detailed milestone information.

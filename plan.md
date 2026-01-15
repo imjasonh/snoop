@@ -2,7 +2,7 @@
 
 ## 🚀 Current Status: Milestone 4 - Kubernetes Integration COMPLETE
 
-**Last Updated**: 2026-01-14
+**Last Updated**: 2026-01-15
 
 Milestone 3 completed (2026-01-14):
 - ✅ Prometheus metrics endpoint (`/metrics` on port 9090)
@@ -13,13 +13,12 @@ Milestone 3 completed (2026-01-14):
 - ✅ Configuration validation
 - ✅ Resource limit recommendations documented (see RESOURCE_LIMITS.md)
 
-Milestone 4 completed (2026-01-14):
+Milestone 4 completed (2026-01-15):
 - ✅ Kubernetes deployment manifests (`deploy/kubernetes/deployment.yaml`)
 - ✅ RBAC manifest for required permissions (`deploy/kubernetes/rbac.yaml`)
 - ✅ Example nginx deployment with snoop sidecar (`deploy/kubernetes/example-app.yaml`)
 - ✅ Comprehensive documentation (`deploy/kubernetes/README.md`)
-- ✅ Support for multi-container pods (trace specific containers)
-
+- ✅ **Multi-container pod support** (automatic discovery, per-container tracking and reporting)
 
 See [Milestone 4](#milestone-4-kubernetes-integration) for details.
 
@@ -397,14 +396,25 @@ Volume mounts:
 
 ### Milestone 4: Kubernetes Integration ✅ COMPLETE
 
-**Goal**: Easy deployment in Kubernetes with proper metadata enrichment.
+**Goal**: Easy deployment in Kubernetes with proper metadata enrichment and multi-container pod support.
 
 **Deliverables**:
 - [x] Kubernetes deployment manifests
 - [x] RBAC manifest for required permissions
 - [x] Example with common workloads (nginx)
 - [x] Documentation for Kubernetes deployment
-- [x] Support for multi-container pods (trace specific containers)
+- [x] **Multi-container pod support**:
+  - [x] Automatic container discovery (no manual cgroup configuration)
+  - [x] Per-container file tracking and deduplication
+  - [x] Per-container reporting with attribution
+  - [x] Self-exclusion (snoop doesn't trace itself)
+
+**Multi-Container Implementation** (2026-01-15):
+- Automatic discovery via `DiscoverAllExceptSelf()` at startup
+- Per-container state tracking with independent LRU caches
+- New report format with per-container file lists and metadata
+- Removed manual `-cgroup` flag (auto-discovery only)
+- Comprehensive test coverage for multi-container scenarios
 
 **Testing**:
 - Deploy in kind cluster
@@ -412,13 +422,16 @@ Volume mounts:
 - Test pod restart behavior (snoop survives app restart)
 - Test snoop restart behavior (resumes tracing)
 - Test with various container runtimes (containerd, CRI-O)
+- Test multi-container pods (2+ app containers + snoop)
 
 **Success criteria**:
 - Works with containerd (default for most clusters)
 - Metadata correctly populated in reports
 - Survives pod/container restarts
+- Correctly attributes files to specific containers
+- Same file accessed by multiple containers appears in both reports
 
-**Completed**: 2026-01-14
+**Completed**: 2026-01-15
 
 ---
 

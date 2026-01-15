@@ -5,7 +5,7 @@
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_core_read.h>
 
-#define MAX_PATH_LEN 256
+#define MAX_PATH_LEN 4096  // Match Linux PATH_MAX to avoid truncation
 
 // Event structure sent to userspace
 struct event {
@@ -18,7 +18,7 @@ struct event {
 // Ring buffer for sending events to userspace
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, 256 * 1024);  // 256KB buffer
+    __uint(max_entries, 2 * 1024 * 1024);  // 2MB buffer to handle high event rates
 } events SEC(".maps");
 
 // Per-CPU array for building event data
@@ -91,7 +91,9 @@ int trace_openat(struct trace_event_raw_sys_enter *ctx) {
     
     // Read pathname argument (second argument for openat)
     const char *pathname = (const char *)ctx->args[1];
-    bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname);
+    if (bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname) < 0) {
+        return 0;  // Skip this event if we can't read the path
+    }
     
     // Submit event to ring buffer
     submit_event(e);
@@ -118,7 +120,9 @@ int trace_execve(struct trace_event_raw_sys_enter *ctx) {
     e->syscall_nr = ctx->id;
     
     const char *pathname = (const char *)ctx->args[0];
-    bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname);
+    if (bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname) < 0) {
+        return 0;  // Skip this event if we can't read the path
+    }
     
     submit_event(e);
     
@@ -144,7 +148,9 @@ int trace_execveat(struct trace_event_raw_sys_enter *ctx) {
     e->syscall_nr = ctx->id;
     
     const char *pathname = (const char *)ctx->args[1];
-    bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname);
+    if (bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname) < 0) {
+        return 0;  // Skip this event if we can't read the path
+    }
     
     submit_event(e);
     
@@ -170,7 +176,9 @@ int trace_openat2(struct trace_event_raw_sys_enter *ctx) {
     e->syscall_nr = ctx->id;
     
     const char *pathname = (const char *)ctx->args[1];
-    bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname);
+    if (bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname) < 0) {
+        return 0;  // Skip this event if we can't read the path
+    }
     
     submit_event(e);
     
@@ -196,7 +204,9 @@ int trace_statx(struct trace_event_raw_sys_enter *ctx) {
     e->syscall_nr = ctx->id;
     
     const char *pathname = (const char *)ctx->args[1];
-    bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname);
+    if (bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname) < 0) {
+        return 0;  // Skip this event if we can't read the path
+    }
     
     submit_event(e);
     
@@ -222,7 +232,9 @@ int trace_newfstatat(struct trace_event_raw_sys_enter *ctx) {
     e->syscall_nr = ctx->id;
     
     const char *pathname = (const char *)ctx->args[1];
-    bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname);
+    if (bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname) < 0) {
+        return 0;  // Skip this event if we can't read the path
+    }
     
     submit_event(e);
     
@@ -248,7 +260,9 @@ int trace_faccessat(struct trace_event_raw_sys_enter *ctx) {
     e->syscall_nr = ctx->id;
     
     const char *pathname = (const char *)ctx->args[1];
-    bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname);
+    if (bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname) < 0) {
+        return 0;  // Skip this event if we can't read the path
+    }
     
     submit_event(e);
     
@@ -274,7 +288,9 @@ int trace_faccessat2(struct trace_event_raw_sys_enter *ctx) {
     e->syscall_nr = ctx->id;
     
     const char *pathname = (const char *)ctx->args[1];
-    bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname);
+    if (bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname) < 0) {
+        return 0;  // Skip this event if we can't read the path
+    }
     
     submit_event(e);
     
@@ -300,7 +316,9 @@ int trace_readlinkat(struct trace_event_raw_sys_enter *ctx) {
     e->syscall_nr = ctx->id;
     
     const char *pathname = (const char *)ctx->args[1];
-    bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname);
+    if (bpf_probe_read_user_str(&e->path, MAX_PATH_LEN, pathname) < 0) {
+        return 0;  // Skip this event if we can't read the path
+    }
     
     submit_event(e);
     

@@ -1,3 +1,5 @@
+//go:build linux
+
 package main
 
 import (
@@ -47,7 +49,7 @@ func main() {
 	flag.StringVar(&namespace, "namespace", "", "Namespace for report metadata")
 	flag.StringVar(&metricsAddr, "metrics-addr", ":9090", "Address for Prometheus metrics endpoint (empty to disable)")
 	flag.Var(&logLevel, "log-level", "Log level (debug, info, warn, error)")
-	flag.IntVar(&maxUniqueFiles, "max-unique-files", 0, "Maximum unique files to track (0 = unbounded)")
+	flag.IntVar(&maxUniqueFiles, "max-unique-files", config.DefaultMaxUniqueFiles, fmt.Sprintf("Maximum unique files to track (0 = unbounded, default = %d)", config.DefaultMaxUniqueFiles))
 	flag.Parse()
 
 	// Build configuration from flags (also check environment variables)
@@ -169,6 +171,7 @@ func run(ctx context.Context, cfg *config.Config) error {
 	// Track last seen drops and evictions count for computing deltas
 	var lastDrops uint64
 	var lastEvicted uint64
+	var finalReportWritten bool
 
 	// Start periodic report writer
 	reportTicker := time.NewTicker(cfg.ReportInterval)
@@ -231,8 +234,11 @@ func run(ctx context.Context, cfg *config.Config) error {
 		select {
 		case <-ctx.Done():
 			// Graceful shutdown: write final report
-			log.Info("Writing final report")
-			writeReport()
+			if !finalReportWritten {
+				log.Info("Writing final report")
+				writeReport()
+				finalReportWritten = true
+			}
 			return nil
 
 		case <-reportTicker.C:
@@ -243,8 +249,11 @@ func run(ctx context.Context, cfg *config.Config) error {
 			if err != nil {
 				if ctx.Err() != nil {
 					// Context cancelled, write final report
-					log.Info("Writing final report")
-					writeReport()
+					if !finalReportWritten {
+						log.Info("Writing final report")
+						writeReport()
+						finalReportWritten = true
+					}
 					return nil
 				}
 				log.Errorf("Error reading event: %v", err)

@@ -8,6 +8,11 @@ import (
 	"time"
 )
 
+const (
+	// DefaultMaxUniqueFiles is the default limit for unique files to prevent OOM (~6-8MB of memory)
+	DefaultMaxUniqueFiles = 100000
+)
+
 // Config holds the configuration for snoop.
 type Config struct {
 	// Target selection

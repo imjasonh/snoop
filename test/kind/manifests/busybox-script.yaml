@@ -89,10 +89,6 @@ spec:
           hostPath:
             path: /sys/kernel/debug
             type: Directory
-        - name: proc
-          hostPath:
-            path: /proc
-            type: Directory
         - name: script
           configMap:
             name: busybox-script
@@ -100,7 +96,7 @@ spec:
 
       containers:
         - name: app
-          image: cgr.dev/chainguard/busybox:latest
+          image: busybox:latest
           command: ["/scripts/test.sh"]
           volumeMounts:
             - name: snoop-data
@@ -120,7 +116,6 @@ spec:
                 - SYS_ADMIN
                 - BPF
                 - PERFMON
-                - SYS_PTRACE
             readOnlyRootFilesystem: true
 
           env:
@@ -157,9 +152,6 @@ spec:
               readOnly: true
             - name: debugfs
               mountPath: /sys/kernel/debug
-              readOnly: true
-            - name: proc
-              mountPath: /proc
               readOnly: true
 
           ports:

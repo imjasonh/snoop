@@ -16,7 +16,6 @@ import (
 
 	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/clog/slag"
-	"github.com/imjasonh/snoop/pkg/apk"
 	"github.com/imjasonh/snoop/pkg/cgroup"
 	"github.com/imjasonh/snoop/pkg/config"
 	"github.com/imjasonh/snoop/pkg/ebpf"
@@ -182,22 +181,6 @@ func run(ctx context.Context, cfg *config.Config) error {
 		}
 	}
 
-	// Initialize APK mappers for containers with APK databases
-	apkMappers := make(map[uint64]*apk.Mapper)
-	for cgroupID, info := range discoveredContainers {
-		if info.HasAPK {
-			log.Infof("Loading APK database for container %s from %s", info.Name, info.APKDBPath)
-			db, err := apk.ParseDatabase(info.APKDBPath)
-			if err != nil {
-				log.Warnf("Failed to parse APK database for %s: %v", info.Name, err)
-				continue
-			}
-			apkMappers[cgroupID] = apk.NewMapper(db)
-			log.Infof("Loaded APK database for %s: %d packages, %d files",
-				info.Name, len(db.Packages), len(db.FileToPackage))
-		}
-	}
-
 	// Convert cgroup.ContainerInfo to processor.ContainerInfo to avoid import cycle
 	processorContainers := make(map[uint64]*processor.ContainerInfo)
 	for cgroupID, info := range discoveredContainers {
@@ -257,31 +240,14 @@ func run(ctx context.Context, cfg *config.Config) error {
 		filesPerContainer := proc.Files()
 		containers := make([]reporter.ContainerReport, 0, len(containerStats))
 		for cgroupID, stats := range containerStats {
-			cr := reporter.ContainerReport{
+			containers = append(containers, reporter.ContainerReport{
 				Name:        stats.Name,
 				CgroupID:    cgroupID,
 				CgroupPath:  stats.CgroupPath,
 				Files:       filesPerContainer[cgroupID],
 				TotalEvents: stats.EventsReceived,
 				UniqueFiles: stats.UniqueFiles,
-			}
-
-			// Add APK package stats if available
-			if mapper, ok := apkMappers[cgroupID]; ok {
-				apkStats := mapper.Stats()
-				cr.APKPackages = make([]reporter.APKPackageReport, len(apkStats))
-				for i, ps := range apkStats {
-					cr.APKPackages[i] = reporter.APKPackageReport{
-						Name:          ps.Name,
-						Version:       ps.Version,
-						TotalFiles:    ps.TotalFiles,
-						AccessedFiles: ps.AccessedFiles,
-						AccessCount:   ps.AccessCount,
-					}
-				}
-			}
-
-			containers = append(containers, cr)
+			})
 		}
 
 		report := &reporter.Report{
@@ -354,10 +320,6 @@ func run(ctx context.Context, cfg *config.Config) error {
 			case processor.ResultNew:
 				m.EventsProcessed.Inc()
 				log.Debugf("New file: %s (container cgroup_id=%d)", path, cgroupID)
-				// Record APK access if mapper exists
-				if mapper, ok := apkMappers[cgroupID]; ok {
-					mapper.RecordAccess(path)
-				}
 			case processor.ResultDuplicate:
 				m.EventsDuplicate.Inc()
 			case processor.ResultExcluded:

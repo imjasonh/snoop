@@ -136,6 +136,6 @@ func (c *Checker) Handler() http.HandlerFunc {
 			w.WriteHeader(http.StatusOK)
 		}
 
-		_ = json.NewEncoder(w).Encode(status)
+		json.NewEncoder(w).Encode(status)
 	}
 }

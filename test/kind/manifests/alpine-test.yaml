@@ -43,10 +43,6 @@ spec:
           hostPath:
             path: /sys/kernel/debug
             type: Directory
-        - name: proc
-          hostPath:
-            path: /proc
-            type: Directory
 
       containers:
         - name: app
@@ -92,7 +88,6 @@ spec:
                 - SYS_ADMIN
                 - BPF
                 - PERFMON
-                - SYS_PTRACE
             readOnlyRootFilesystem: true
 
           env:
@@ -129,9 +124,6 @@ spec:
               readOnly: true
             - name: debugfs
               mountPath: /sys/kernel/debug
-              readOnly: true
-            - name: proc
-              mountPath: /proc
               readOnly: true
 
           ports:

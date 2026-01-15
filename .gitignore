@@ -25,5 +25,3 @@ coverage.out
 
 # Docker volumes
 /data/
-
-test/kind/validate/validate

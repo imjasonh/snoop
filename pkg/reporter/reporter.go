@@ -32,22 +32,12 @@ type Report struct {
 
 // ContainerReport represents the file access report for a single container.
 type ContainerReport struct {
-	Name        string             `json:"name"`
-	CgroupID    uint64             `json:"cgroup_id"`
-	CgroupPath  string             `json:"cgroup_path"`
-	Files       []string           `json:"files"`
-	TotalEvents uint64             `json:"total_events"`
-	UniqueFiles int                `json:"unique_files"`
-	APKPackages []APKPackageReport `json:"apk_packages,omitempty"`
-}
-
-// APKPackageReport summarizes access to a single APK package.
-type APKPackageReport struct {
-	Name          string `json:"name"`
-	Version       string `json:"version"`
-	TotalFiles    int    `json:"total_files"`
-	AccessedFiles int    `json:"accessed_files"`
-	AccessCount   uint64 `json:"access_count"`
+	Name        string   `json:"name"`
+	CgroupID    uint64   `json:"cgroup_id"`
+	CgroupPath  string   `json:"cgroup_path"`
+	Files       []string `json:"files"`
+	TotalEvents uint64   `json:"total_events"`
+	UniqueFiles int      `json:"unique_files"`
 }
 
 // Reporter defines the interface for report output.
@@ -125,12 +115,12 @@ func (r *FileReporter) Update(ctx context.Context, report *Report) error {
 	// Clean up temp file on error
 	defer func() {
 		if tmpPath != "" {
-			_ = os.Remove(tmpPath)
+			os.Remove(tmpPath)
 		}
 	}()
 
 	if _, err := tmpFile.Write(data); err != nil {
-		_ = tmpFile.Close()
+		tmpFile.Close()
 		return fmt.Errorf("writing temp file: %w", err)
 	}
 

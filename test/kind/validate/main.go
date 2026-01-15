@@ -21,21 +21,12 @@ type MultiContainerReport struct {
 }
 
 type ContainerReport struct {
-	Name        string             `json:"name"`
-	CgroupID    uint64             `json:"cgroup_id"`
-	CgroupPath  string             `json:"cgroup_path"`
-	Files       []string           `json:"files"`
-	TotalEvents uint64             `json:"total_events"`
-	UniqueFiles int                `json:"unique_files"`
-	APKPackages []APKPackageReport `json:"apk_packages,omitempty"`
-}
-
-type APKPackageReport struct {
-	Name          string `json:"name"`
-	Version       string `json:"version"`
-	TotalFiles    int    `json:"total_files"`
-	AccessedFiles int    `json:"accessed_files"`
-	AccessCount   uint64 `json:"access_count"`
+	Name        string   `json:"name"`
+	CgroupID    uint64   `json:"cgroup_id"`
+	CgroupPath  string   `json:"cgroup_path"`
+	Files       []string `json:"files"`
+	TotalEvents uint64   `json:"total_events"`
+	UniqueFiles int      `json:"unique_files"`
 }
 
 func main() {
@@ -159,40 +150,6 @@ func validateMultiContainerReport(path string) error {
 			}
 			fmt.Printf("    ... and %d more\n", len(container.Files)-5)
 		}
-
-		// Validate APK packages if present
-		if len(container.APKPackages) > 0 {
-			fmt.Printf("  ✓ APK Packages: %d\n", len(container.APKPackages))
-			if err := validateAPKPackages(container); err != nil {
-				return fmt.Errorf("container %s APK validation: %w", container.Name, err)
-			}
-
-			// Show summary stats
-			totalAPKFiles := 0
-			accessedAPKFiles := 0
-			packagesWithAccess := 0
-			for _, pkg := range container.APKPackages {
-				totalAPKFiles += pkg.TotalFiles
-				accessedAPKFiles += pkg.AccessedFiles
-				if pkg.AccessCount > 0 {
-					packagesWithAccess++
-				}
-			}
-			fmt.Printf("  APK Summary:\n")
-			fmt.Printf("    Total APK files: %d\n", totalAPKFiles)
-			fmt.Printf("    Accessed APK files: %d\n", accessedAPKFiles)
-			fmt.Printf("    Packages with access: %d\n", packagesWithAccess)
-
-			// Show top 3 packages by access count
-			topPackages := getTopPackages(container.APKPackages, 3)
-			if len(topPackages) > 0 {
-				fmt.Printf("  Top packages:\n")
-				for _, pkg := range topPackages {
-					fmt.Printf("    - %s (%s): %d files accessed, %d total accesses\n",
-						pkg.Name, pkg.Version, pkg.AccessedFiles, pkg.AccessCount)
-				}
-			}
-		}
 	}
 
 	// Validate aggregate stats
@@ -217,114 +174,7 @@ func validateMultiContainerReport(path string) error {
 	}
 	fmt.Printf("✓ At least one container has files captured\n")
 
-	// Calculate APK aggregate statistics
-	totalAPKPackages := 0
-	totalAPKPackagesAccessed := 0
-	totalAPKPackagesUnused := 0
-	containersWithAPK := 0
-
-	for _, container := range report.Containers {
-		if len(container.APKPackages) > 0 {
-			containersWithAPK++
-			totalAPKPackages += len(container.APKPackages)
-			for _, pkg := range container.APKPackages {
-				if pkg.AccessCount > 0 {
-					totalAPKPackagesAccessed++
-				} else {
-					totalAPKPackagesUnused++
-				}
-			}
-		}
-	}
-
-	if containersWithAPK > 0 {
-		fmt.Println("\n=== APK Package Statistics ===")
-		fmt.Printf("Containers with APK databases: %d\n", containersWithAPK)
-		fmt.Printf("Total APK packages: %d\n", totalAPKPackages)
-		fmt.Printf("APK packages accessed: %d\n", totalAPKPackagesAccessed)
-		fmt.Printf("APK packages NOT accessed: %d\n", totalAPKPackagesUnused)
-		if totalAPKPackages > 0 {
-			utilizationRate := float64(totalAPKPackagesAccessed) / float64(totalAPKPackages) * 100
-			fmt.Printf("APK utilization rate: %.1f%%\n", utilizationRate)
-		}
-	} else {
-		fmt.Println("\n=== APK Package Statistics ===")
-		fmt.Println("⚠️  No APK databases detected in any container")
-		fmt.Println("    This is expected in Kubernetes/containerd environments")
-		fmt.Println("    APK detection requires /proc/{pid}/root filesystem access")
-	}
-
 	return nil
-}
-
-func validateAPKPackages(container ContainerReport) error {
-	// Validate each APK package
-	for _, pkg := range container.APKPackages {
-		if pkg.Name == "" {
-			return fmt.Errorf("APK package has empty name")
-		}
-		if pkg.Version == "" {
-			return fmt.Errorf("APK package %s has empty version", pkg.Name)
-		}
-		if pkg.TotalFiles < 0 {
-			return fmt.Errorf("APK package %s has negative total_files", pkg.Name)
-		}
-		if pkg.AccessedFiles < 0 {
-			return fmt.Errorf("APK package %s has negative accessed_files", pkg.Name)
-		}
-		if pkg.AccessedFiles > pkg.TotalFiles {
-			return fmt.Errorf("APK package %s has accessed_files (%d) > total_files (%d)",
-				pkg.Name, pkg.AccessedFiles, pkg.TotalFiles)
-		}
-		// AccessCount can be 0 (for unused packages) or greater
-		if pkg.AccessCount < 0 {
-			return fmt.Errorf("APK package %s has negative access_count", pkg.Name)
-		}
-		// If AccessedFiles > 0, AccessCount should also be > 0
-		if pkg.AccessedFiles > 0 && pkg.AccessCount == 0 {
-			return fmt.Errorf("APK package %s has accessed files but zero access count", pkg.Name)
-		}
-	}
-
-	// Check for duplicate package names
-	seen := make(map[string]bool)
-	for _, pkg := range container.APKPackages {
-		if seen[pkg.Name] {
-			return fmt.Errorf("duplicate APK package: %s", pkg.Name)
-		}
-		seen[pkg.Name] = true
-	}
-
-	return nil
-}
-
-func getTopPackages(packages []APKPackageReport, n int) []APKPackageReport {
-	// Sort by access count (descending) and return top n
-	sorted := make([]APKPackageReport, len(packages))
-	copy(sorted, packages)
-
-	// Simple bubble sort for small n
-	for i := 0; i < len(sorted); i++ {
-		for j := i + 1; j < len(sorted); j++ {
-			if sorted[j].AccessCount > sorted[i].AccessCount {
-				sorted[i], sorted[j] = sorted[j], sorted[i]
-			}
-		}
-	}
-
-	if len(sorted) > n {
-		sorted = sorted[:n]
-	}
-
-	// Filter out packages with zero access
-	result := []APKPackageReport{}
-	for _, pkg := range sorted {
-		if pkg.AccessCount > 0 {
-			result = append(result, pkg)
-		}
-	}
-
-	return result
 }
 
 func validateContainerFiles(container ContainerReport) error {

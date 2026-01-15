@@ -48,14 +48,14 @@ func NewProbe(ctx context.Context) (*Probe, error) {
 
 	// Attach to tracepoints
 	if err := p.attachTracepoints(ctx); err != nil {
-		_ = p.Close()
+		p.Close()
 		return nil, fmt.Errorf("attaching tracepoints: %w", err)
 	}
 
 	// Create ring buffer reader
 	rd, err := ringbuf.NewReader(objs.Events)
 	if err != nil {
-		_ = p.Close()
+		p.Close()
 		return nil, fmt.Errorf("creating ring buffer reader: %w", err)
 	}
 	p.reader = rd

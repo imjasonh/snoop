@@ -60,7 +60,7 @@ func TestMetricsHandler(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to fetch metrics: %v", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status 200, got %d", resp.StatusCode)
@@ -136,7 +136,7 @@ func TestProcessMetricsIncluded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to fetch metrics: %v", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
